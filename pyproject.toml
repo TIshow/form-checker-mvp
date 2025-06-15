@@ -1,0 +1,186 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tennis-form-checker-mvp"
+version = "0.1.0"
+description = "Tennis form analysis MVP using MediaPipe and YOLO"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Tennis Form Analyzer", email = "dev@example.com"}
+]
+keywords = ["tennis", "computer-vision", "pose-estimation", "sports-analysis"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Multimedia :: Video :: Display",
+]
+requires-python = ">=3.9,<3.13"
+dependencies = [
+    # Core dependencies
+    "opencv-python-headless>=4.8.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    
+    # Computer vision and ML
+    # Note: MediaPipe requires Python 3.9-3.11 currently
+    # For Python 3.12+, install manually: pip install mediapipe
+    # For basic functionality without pose estimation, MediaPipe is optional
+    
+    # UI and visualization
+    "streamlit>=1.28.0",
+    "plotly>=5.15.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    
+    # Data handling
+    "pillow>=10.0.0",
+    "scipy>=1.11.0",
+    
+    # Utilities
+    "tqdm>=4.65.0",
+    "click>=8.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.7.0",
+    "flake8>=6.0.0",
+    "mypy>=1.5.0",
+    "pre-commit>=3.3.0",
+]
+pose = [
+    # Pose estimation support (requires Python 3.9-3.11)
+    "mediapipe>=0.10.9",
+]
+yolo = [
+    # YOLO detection support - install manually for your platform
+    "torch>=2.0.0",
+    "torchvision>=0.15.0", 
+    "ultralytics>=8.0.0",
+]
+full = [
+    # Full functionality (pose + YOLO)
+    "mediapipe>=0.10.9",
+    "torch>=2.0.0",
+    "torchvision>=0.15.0", 
+    "ultralytics>=8.0.0",
+]
+gpu = [
+    # CUDA support versions
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "ultralytics>=8.0.0",
+    "torchaudio>=2.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/tennis-form-checker-mvp"
+Repository = "https://github.com/yourusername/tennis-form-checker-mvp"
+Issues = "https://github.com/yourusername/tennis-form-checker-mvp/issues"
+
+[project.scripts]
+tennis-analyzer = "src.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+    \.eggs
+  | \.git
+  | \.venv
+  | \.tox
+  | build
+  | dist
+)/
+'''
+
+[tool.flake8]
+max-line-length = 100
+extend-ignore = ["E203", "W503"]
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    ".eggs",
+    "*.egg",
+    "build",
+    "dist"
+]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "cv2",
+    "mediapipe",
+    "torch",
+    "torchvision",
+    "ultralytics",
+    "streamlit",
+    "plotly.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+    "--cov-report=xml",
+    "-v"
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
