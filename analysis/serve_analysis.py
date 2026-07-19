@@ -264,6 +264,14 @@ TH_X_FACTOR_SMALL_DEG = 20.0  # 捻転差が小さい
 CHAIN_MIN_SPEED_DEG_S = 30.0
 CHAIN_REL_SPEED = 0.15        # 最大ピークに対する相対比
 
+# 実際のサーブの連鎖は全体で0.1秒ほど、隣接する体節の時間差は20〜40ms しかない。
+# 1フレーム差を「順序の逆転」と呼ぶのはノイズを読んでいるだけなので、
+# これ以上はっきり逆転している場合しか指摘しない。
+TH_CHAIN_MIN_GAP_S = 0.05
+# 順序を論じるのに最低限必要な撮影フレームレート。
+# 30fps では 1フレーム=33ms で連鎖の時間差を分解できない。
+CHAIN_MIN_FPS = 60.0
+
 
 def generate_feedback(m: dict) -> list[dict]:
     """指標から改善点を抽出し、優先度順に返す。
@@ -273,25 +281,31 @@ def generate_feedback(m: dict) -> list[dict]:
     found: list[dict] = []
 
     # --- 原理1: キネティックチェーンの順序 --------------------------------
-    # 十分に回転しているセグメントだけを、体の中心から末端の順に並べて比較する。
-    chain = [c for c in m["kinetic_chain"] if c.get("reliable", True)]
-    for i in range(len(chain) - 1):
-        cur, nxt = chain[i], chain[i + 1]
-        if cur["peak_frame"] > nxt["peak_frame"]:
-            found.append({
-                "priority": 100,
-                "id": "kinetic_chain_order",
-                "title": "力の伝わる順序が逆転しています",
-                "detail": (
-                    f"{cur['segment']}(frame {cur['peak_frame']}) より "
-                    f"{nxt['segment']}(frame {nxt['peak_frame']}) が先にピークに達しています。"
-                ),
-                "cue": (
-                    f"{cur['segment']}から先に動かす意識を。"
-                    "体の中心から順に加速すると、力が末端まで乗ります。"
-                ),
-            })
-            break  # 最初の逆転だけ指摘する（一度に複数出さない）
+    # 撮影フレームレートが足りない場合、順序は測定できないので判定しない。
+    # 1フレーム差を「逆転」と呼ぶのはノイズを読んでいるだけになる。
+    fps = m["fps"]
+    if fps >= CHAIN_MIN_FPS:
+        chain = [c for c in m["kinetic_chain"] if c.get("reliable", True)]
+        min_gap = max(TH_CHAIN_MIN_GAP_S * fps, 2.0)
+        for i in range(len(chain) - 1):
+            cur, nxt = chain[i], chain[i + 1]
+            gap = cur["peak_frame"] - nxt["peak_frame"]
+            if gap >= min_gap:
+                found.append({
+                    "priority": 100,
+                    "id": "kinetic_chain_order",
+                    "title": "力の伝わる順序が逆転しています",
+                    "detail": (
+                        f"{cur['segment']}(frame {cur['peak_frame']}) より "
+                        f"{nxt['segment']}(frame {nxt['peak_frame']}) が "
+                        f"{gap/fps*1000:.0f}ms 先にピークに達しています。"
+                    ),
+                    "cue": (
+                        f"{cur['segment']}から先に動かす意識を。"
+                        "体の中心から順に加速すると、力が末端まで乗ります。"
+                    ),
+                })
+                break  # 最初の逆転だけ指摘する（一度に複数出さない）
 
     # --- 原理2: 打点のタイミング ------------------------------------------
     late = m["contact_vs_compeak_s"]
@@ -393,6 +407,14 @@ def format_report(m: dict, feedback: list[dict], top_n: int = 2) -> str:
             f"  {c['segment']:<8} peak frame {c['peak_frame']:3d}  "
             f"({c['peak_speed']:6.0f} deg/s){note}"
         )
+    if fps < CHAIN_MIN_FPS:
+        lines += [
+            "",
+            f"  ⚠️ {fps:.0f}fps では 1フレーム={1000/fps:.0f}ms。",
+            "     連鎖の時間差は 20〜40ms のため、この撮影では順序を判定できません。",
+            f"     順序を評価するには {CHAIN_MIN_FPS:.0f}fps 以上（できれば120/240fps）で撮影してください。",
+            "     上の数値は参考値です。",
+        ]
 
     lines += ["", "=" * 62, "  改善ポイント", "=" * 62]
     if not feedback:
