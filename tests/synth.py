@@ -48,7 +48,9 @@ def synth_serve(fps: float = 30.0, good_chain: bool = True,
     J = np.zeros((F, 24, 3))
 
     pelvis_h = 1.0 - 0.05 * _gauss(t, T_LOAD, 0.40) + 0.12 * _gauss(t, T_CONTACT, 0.27)
-    knee_bend = 0.20 * _gauss(t, T_LOAD, 0.40) * (1.0 if deep_knee else 0.10)
+    # 深い沈み込みで膝の関節角が文献のプロ相当(約115°)まで下がるようにする。
+    # 浅い場合は 160°台にとどまる。
+    knee_bend = 0.42 * _gauss(t, T_LOAD, 0.40) * (1.0 if deep_knee else 0.06)
 
     # 角速度がピークになる時刻 [s]。腰→肩→上腕→前腕 の順が理想。
     if good_chain:

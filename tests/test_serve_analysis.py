@@ -129,6 +129,52 @@ def test_feedback_sorted_by_priority():
 
 
 # --------------------------------------------------------------------------
+# 閾値の裏付け
+#
+# 初期実装は体幹の傾き35°超を「傾きすぎ」と警告していたが、文献ではプロの
+# 接球時の体幹は鉛直から約42°傾いており、正しい技術を欠点と判定していた。
+# 根拠のない閾値で断定しないことを、テストで縛る。
+# --------------------------------------------------------------------------
+def test_every_finding_declares_its_tier():
+    """全ての指摘が、何を根拠に判定したかを申告していること。"""
+    _, feedback = run(fps=120.0, good_chain=False,
+                      contact_late=True, deep_knee=False)
+    assert feedback, "検証のため何か検出される想定"
+    for f in feedback:
+        assert f["tier"] in ("A", "B"), f"{f['id']} の根拠区分が不正: {f.get('tier')}"
+
+
+def test_trunk_lean_is_never_reported_as_a_fault():
+    """傾けるのは正しい技術。欠点として指摘してはいけない。"""
+    for kw in ({}, {"good_chain": False}, {"contact_late": True},
+               {"deep_knee": False}):
+        _, feedback = run(fps=120.0, **kw)
+        assert "trunk_lean" not in ids(feedback)
+
+
+def test_unbacked_metrics_are_not_judged():
+    """根拠の無い指標(打点比・X-factor)で欠点と断じないこと。"""
+    for kw in ({}, {"good_chain": False}, {"deep_knee": False}):
+        _, feedback = run(fps=120.0, **kw)
+        assert "contact_low" not in ids(feedback)
+        assert "x_factor_small" not in ids(feedback)
+
+
+def test_literature_references_are_plausible():
+    """文献値が現実的な範囲にあること（取り違えの検出）。"""
+    assert 100 <= fb.REF_KNEE_JOINT_DEG <= 130      # 屈曲 約64° 相当
+    assert 140 <= fb.REF_ELBOW_JOINT_DEG <= 170     # 屈曲 約30° 相当
+    assert 30 <= fb.REF_TRUNK_LEAN_DEG <= 55        # 水平から約48°
+
+
+def test_detects_bent_elbow_at_contact():
+    """接球時に肘が曲がっていれば指摘する（文献: プロは約150°）。"""
+    metrics, _ = run(fps=120.0)
+    assert metrics["elbow_at_contact_deg"] > fb.TH_ELBOW_BENT_DEG, \
+        "合成データは腕が伸びている想定"
+
+
+# --------------------------------------------------------------------------
 # 入出力
 # --------------------------------------------------------------------------
 def test_analyze_from_files(tmp_path):

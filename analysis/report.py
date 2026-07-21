@@ -5,7 +5,12 @@
 
 from __future__ import annotations
 
-from .feedback import CHAIN_MIN_FPS
+from .feedback import (
+    CHAIN_MIN_FPS,
+    REF_ELBOW_JOINT_DEG,
+    REF_KNEE_JOINT_DEG,
+    REF_TRUNK_LEAN_DEG,
+)
 
 #: 一度に提示する指摘の上限。人は複数の修正キューを同時に処理できず、
 #: 15件の指摘は0件と同じになる。
@@ -34,15 +39,20 @@ def format_report(m: dict, feedback: list[dict], top_n: int = DEFAULT_TOP_N) -> 
         f"  重心の最低点 : {m['com_low_m']:.3f} m",
         f"  重心の最高点 : {m['com_peak_m']:.3f} m",
         f"  伸び上がり   : {m['com_rise_m'] * 100:+.1f} cm / {m['drive_time_s']:.2f} 秒",
-        f"  沈み込み膝角 : {m['min_knee_deg_overall']:.0f}° (180=伸びきり)",
+        f"  沈み込み膝角 : {m['min_knee_deg_overall']:.0f}° "
+        f"(180=伸びきり / プロ約{REF_KNEE_JOINT_DEG:.0f}°)",
         "",
         "── 打点 ──",
-        f"  高さ          : {m['contact_height_m']:.3f} m "
-        f"(頭の {m['contact_height_ratio']:.2f} 倍)",
+        f"  高さ          : {m['contact_height_m']:.3f} m",
         f"  重心頂点との差: {m['contact_vs_compeak_s']:+.2f} 秒 (0に近いほど良い)",
-        f"  肘の角度      : {m['elbow_at_contact_deg']:.0f}°",
-        f"  体幹の傾き    : {m['trunk_lean_at_contact_deg']:.0f}°",
-        f"  最大捻転差    : {m['max_x_factor_deg']:.0f}°",
+        f"  肘の角度      : {m['elbow_at_contact_deg']:.0f}° "
+        f"(プロ約{REF_ELBOW_JOINT_DEG:.0f}°)",
+        f"  体幹の傾き    : {m['trunk_lean_at_contact_deg']:.0f}° "
+        f"(プロ約{REF_TRUNK_LEAN_DEG:.0f}° / 傾けるのは正しい技術)",
+        "",
+        "── 参考値（判定には使っていない）──",
+        f"  打点/頭の高さ比: {m['contact_height_ratio']:.2f}  ※標準指標が無く比較対象なし",
+        f"  最大捻転差     : {m['max_x_factor_deg']:.0f}°  ※サーブでの適正レンジ未確認",
         "",
         "── キネティックチェーン（理想は上から順にピーク）──",
     ]
