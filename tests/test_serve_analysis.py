@@ -131,8 +131,11 @@ def test_feedback_sorted_by_priority():
 # --------------------------------------------------------------------------
 # 閾値の裏付け
 #
-# 初期実装は体幹の傾き35°超を「傾きすぎ」と警告していたが、文献ではプロの
-# 接球時の体幹は鉛直から約42°傾いており、正しい技術を欠点と判定していた。
+# 初期実装は体幹の傾き35°超を「傾きすぎ」と警告していた。根拠として
+# 「プロは水平から48°傾いている」という値を挙げていたが、論文本文を確認した
+# ところ**その数値は存在しなかった**（検索スニペットからの孫引きだった）。
+# 接球時の体幹について検証済みの基準値は無いため、判定してはいけない。
+#
 # 根拠のない閾値で断定しないことを、テストで縛る。
 # --------------------------------------------------------------------------
 def test_every_finding_declares_its_tier():
@@ -145,7 +148,7 @@ def test_every_finding_declares_its_tier():
 
 
 def test_trunk_lean_is_never_reported_as_a_fault():
-    """傾けるのは正しい技術。欠点として指摘してはいけない。"""
+    """接球時の体幹には検証済みの基準値が無い。欠点として指摘してはいけない。"""
     for kw in ({}, {"good_chain": False}, {"contact_late": True},
                {"deep_knee": False}):
         _, feedback = run(fps=120.0, **kw)
@@ -164,7 +167,7 @@ def test_literature_references_are_plausible():
     """文献値が現実的な範囲にあること（取り違えの検出）。"""
     assert 100 <= fb.REF_KNEE_JOINT_DEG <= 130      # 屈曲 約64° 相当
     assert 140 <= fb.REF_ELBOW_JOINT_DEG <= 170     # 屈曲 約30° 相当
-    assert 30 <= fb.REF_TRUNK_LEAN_DEG <= 55        # 水平から約48°
+    assert 15 <= fb.REF_TRUNK_LEAN_TROPHY_DEG <= 40  # トロフィー時 25.0±7.1°
 
 
 def test_detects_bent_elbow_at_contact():

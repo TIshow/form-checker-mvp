@@ -9,7 +9,7 @@ from .feedback import (
     CHAIN_MIN_FPS,
     REF_ELBOW_JOINT_DEG,
     REF_KNEE_JOINT_DEG,
-    REF_TRUNK_LEAN_DEG,
+    REF_TRUNK_LEAN_TROPHY_DEG,
 )
 
 #: 一度に提示する指摘の上限。人は複数の修正キューを同時に処理できず、
@@ -47,10 +47,10 @@ def format_report(m: dict, feedback: list[dict], top_n: int = DEFAULT_TOP_N) -> 
         f"  重心頂点との差: {m['contact_vs_compeak_s']:+.2f} 秒 (0に近いほど良い)",
         f"  肘の角度      : {m['elbow_at_contact_deg']:.0f}° "
         f"(プロ約{REF_ELBOW_JOINT_DEG:.0f}°)",
-        f"  体幹の傾き    : {m['trunk_lean_at_contact_deg']:.0f}° "
-        f"(プロ約{REF_TRUNK_LEAN_DEG:.0f}° / 傾けるのは正しい技術)",
         "",
-        "── 参考値（判定には使っていない）──",
+        "── 参考値（判定に使っていない）──",
+        f"  体幹の傾き(接球時): {m['trunk_lean_at_contact_deg']:.0f}°  "
+        f"※文献はトロフィー時{REF_TRUNK_LEAN_TROPHY_DEG:.0f}°のみ報告。接球時の基準値なし",
         f"  打点/頭の高さ比: {m['contact_height_ratio']:.2f}  ※標準指標が無く比較対象なし",
         f"  最大捻転差     : {m['max_x_factor_deg']:.0f}°  ※サーブでの適正レンジ未確認",
         "",
