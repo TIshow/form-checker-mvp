@@ -73,9 +73,38 @@ SMPL-X で推論 → smplx2smpl で SMPL頂点へ変換 → J_regressor で24関
 - チェックポイントは Google Drive だとDL制限に当たる → HF ミラー `ryanrudes/gvhmr`
 - GVHMR には `from turtle import forward` という不要行のバグがある（セクション2で除去）
 
+## このノートの出力を解析層に渡す
+
+ノートが出力する3つの `.npy` を [`analysis/`](../analysis/) が読み、
+指標とフィードバックを生成する。解析層は**純numpyでGPU不要**なので、
+Colabの通常カーネルでもローカルでも動く。
+
+`analysis/` を Google ドライブに置いておけば、Colab から直接使える:
+
+```python
+import sys
+sys.path.insert(0, '/content/drive/MyDrive/gvhmr_backup')
+import analysis
+metrics, feedback = analysis.analyze_from_files(
+    '/content/gv_joints.npy', '/content/gv_com.npy',
+    '/content/gv_upaxis.npy', fps=30.0)
+print(analysis.format_report(metrics, feedback))
+```
+
+⚠️ **`fps` は実際の撮影フレームレートを渡すこと。** 解析層はこの値を使って
+「その指標が測定可能か」を判断する。嘘の値を渡すと測れないものを測ったことにされる。
+
+## 撮影について
+
+**キネティックチェーン（力の伝達順序）を評価するなら 120fps 以上で撮影する。**
+30fps では1フレーム=33ms あり、連鎖の隣接体節の時間差 20〜40ms を分解できない。
+iPhone のスローモード等を使うこと。
+
+重心・打点・関節角度は 30fps でも測定できる。
+
 ## 次の課題
 
-1. **フェーズ自動分割** — 動画にサーブ以外の動作が混在するため、サーブ区間の切り出しが必要
-2. **人物追跡の頑健化** — 背景に別プレイヤーがいると追跡が移る可能性
-3. **指標の拡充** — 肘の角度、肩の回転、キネティックチェーンなど
+1. **120fpsで再撮影** — キネティックチェーンを評価可能にする
+2. **サーブ区間の自動切り出し** — 1クリップに他の動作が混在する
+3. **人物追跡の頑健化** — 背景に別プレイヤーがいると追跡が移る可能性
 4. **コート座標の定義** — 現状 axis 0 / axis 2 がコートのどちら向きか未定義のため水平移動を解釈できない
