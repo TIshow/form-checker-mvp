@@ -75,7 +75,22 @@
 
 ```
 REDESIGN.md    設計方針・技術選定・ロードマップ
-notebooks/     P0検証用の Colab ノートブック（検証済み）
+notebooks/     3D復元パイプライン（Colab / GPU が必要）
+analysis/      指標算出とフィードバック生成（純numpy / GPU不要）
+  serve.py       計測  — 幾何・運動学・指標
+  feedback.py    判定  — ルールと閾値
+  report.py      表示
+tests/         合成サーブデータによる検証
+```
+
+3D復元は GPU が要るため Colab で実行し、その出力(`.npy`)を `analysis/` が読む、
+という分業になっている。`analysis/` はローカルでも動く。
+
+```bash
+uv venv && uv pip install -e ".[dev]"
+pytest
+python -m analysis --joints gv_joints.npy --com gv_com.npy \
+                   --upaxis gv_upaxis.npy --fps 120
 ```
 
 ## 実行環境について

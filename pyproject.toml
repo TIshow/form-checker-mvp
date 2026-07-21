@@ -1,0 +1,33 @@
+[project]
+name = "tennis-form-analyzer"
+version = "0.2.0"
+description = "サーブの3D姿勢データからバイオメカ指標と改善フィードバックを生成する"
+readme = "README.md"
+requires-python = ">=3.10"
+
+# 解析層は numpy のみに依存する。3D復元 (GVHMR) は Colab 側の
+# Python 3.10 環境で動かすため、ここには含めない。
+dependencies = [
+    "numpy>=1.23",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+]
+# レポートをグラフ化する場合のみ
+plot = [
+    "matplotlib>=3.7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["analysis"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = ["-v"]

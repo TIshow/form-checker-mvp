@@ -1,6 +1,11 @@
 __pycache__/
 *.pyc
 .DS_Store
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# 動画と解析の中間生成物
 *.mp4
-output/
-*_output/
+*.mov
+*.npy
