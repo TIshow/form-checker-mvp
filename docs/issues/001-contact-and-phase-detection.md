@@ -2,6 +2,7 @@
 
 Status: Open
 Created: 2026-07-22
+GitHub: [#1](https://github.com/TIshow/form-checker-mvp/issues/1)
 関連コード: [analysis/serve.py](../../analysis/serve.py) `detect_phases`
 
 ---
