@@ -21,6 +21,7 @@ from .serve import ServeKinematics, compute_metrics
 
 __all__ = [
     "analyze",
+    "analyze_json",
     "analyze_from_files",
     "compute_metrics",
     "format_report",
@@ -44,3 +45,20 @@ def analyze_from_files(joints_path: str = "gv_joints.npy",
                        fps: float = 30.0) -> tuple[dict, list[dict]]:
     """GVHMRパイプラインが出力した関節 .npy から解析する。"""
     return analyze(np.load(joints_path), fps)
+
+
+def analyze_json(joints: np.ndarray, fps: float = 30.0) -> dict:
+    """Web が返す JSON 化可能な結果。指標・フィードバック・3Dビューア用の関節列。
+
+    3D復元の外（サーバーのCPUやブラウザ）へ渡す境界。numpy を残さず、
+    そのまま json.dumps できる形にする。
+    """
+    kin = ServeKinematics(joints, fps)
+    metrics = compute_metrics(kin)
+    feedback = generate_feedback(metrics)
+    return {
+        "metrics": metrics,
+        "feedback": feedback,
+        "up_axis": [kin.up_ax, kin.up_sign],
+        "joints": np.asarray(joints).round(4).tolist(),  # (F,24,3) 3Dビューア用
+    }

@@ -188,6 +188,18 @@ def test_analyze_from_files(tmp_path):
     assert metrics["n_frames"] == joints.shape[0]
 
 
+def test_analyze_json_is_serializable():
+    """Web が返す結果が numpy を残さず json 化できること。"""
+    import json
+
+    joints, _ = synth_serve(fps=120.0, good_chain=False)
+    res = analysis.analyze_json(joints, fps=120.0)
+    text = json.dumps(res)  # numpy が残っていれば例外
+    assert "feedback" in res and "joints" in res and "metrics" in res
+    assert len(res["joints"]) == joints.shape[0]
+    assert json.loads(text)["metrics"]["phases"]["contact"] >= 0
+
+
 def test_com_derived_from_joints_is_anatomical():
     """関節から導出した重心が身長の約半分に来る（移動が忠実かの確認）。"""
     from analysis.serve import compute_com, detect_up_axis

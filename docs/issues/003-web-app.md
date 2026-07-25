@@ -51,11 +51,14 @@ CLI（`modal run` → `python -m analysis`）でエンドツーエンドが通�
 
 ## 作業計画
 
-### フェーズ A: バックエンドをHTTP化
-- [ ] Modal に HTTP エンドポイントを追加（動画を受けて gv_*.npy + フィードバックJSONを返す）
-- [ ] analysis をサーバー側で実行し、指標＋フィードバックをJSONで返す
-- [ ] 3Dビューア用に関節列（(F,24,3)）もJSONに含める
-- [ ] 非同期ジョブ（投入→状態確認）の形を決める（約10分待ちのため）
+### フェーズ A: バックエンドをHTTP化 ✅ 完了 2026-07-25
+- [x] Modal に HTTP エンドポイントを追加（POST /submit・GET /result）
+- [x] analysis をサーバー側で実行し、指標＋フィードバックをJSONで返す（run_job）
+- [x] 3Dビューア用に関節列（(F,24,3)）もJSONに含める（analysis.analyze_json）
+- [x] 非同期ジョブ（spawn→FunctionCall.from_id でポーリング）
+- 検証: HTTP経由で temp_my_serve.mp4 を投入→結果JSONを取得。CLI版と一致
+  （frame 87/103、肘131°、feedback「打点で肘が曲がっています」）。待ち時間177秒
+- エンドポイント: POST serve-submit / GET serve-result（tishow workspace）
 
 ### フェーズ B: フロント（Vercel）
 - [ ] アップロードUI（fps 入力を含む）

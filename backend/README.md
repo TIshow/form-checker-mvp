@@ -43,15 +43,33 @@ python -m analysis --joints gv_joints.npy --fps 30 --save output
 ブラウザもセッション管理も不要。将来この関数に HTTP エンドポイントを足せば
 そのまま Web バックエンドになる。
 
+## Web エンドポイント（issue 003 フェーズA）
+
+ブラウザから使うための非同期HTTP。復元は約10分かかるため投入と取得を分ける。
+
+```bash
+modal deploy backend/reconstruct.py
+# POST https://<workspace>--serve-submit.modal.run   {video_b64, name?, fps?} → {job_id}
+# GET  https://<workspace>--serve-result.modal.run?job_id=...  → {status, result?}
+#   status: pending / done(+result) / error
+```
+
+`result` の JSON は `analysis.analyze_json` の出力（metrics・feedback・
+3Dビューア用の joints (F,24,3)・up_axis）。GPUを使うのは `run_job` の復元段だけで、
+指標導出は同コンテナ内の analysis（純numpy）が行う。
+
 ## 構成
 
 | 要素 | 役割 |
 |---|---|
-| `image` | GVHMR の環境（Python 3.10 / torch 2.3+cu121 / chumpy / turtleバグ除去） |
+| `image` | GVHMR環境（Python 3.10 / torch 2.3+cu121 / chumpy / turtleバグ除去）＋ analysis |
 | Volume `gvhmr-assets` | チェックポイント + body models。一度置けば毎回マウント |
 | `fetch_checkpoints()` | HuggingFace `ryanrudes/gvhmr` から4つのckptを取得（初回のみ） |
-| `reconstruct()` | GPU関数。`demo.py -s` で復元し、SMPL-X→SMPL 24関節とレンダ動画を返す |
-| `main()` | ローカルの動画を送り、結果 .npy を引き戻す `modal run` の入口 |
+| `_gvhmr_joints()` | 共通ヘルパー。`demo.py -s` で復元し 24関節とレンダ動画を返す |
+| `reconstruct()` | CLI用。関節を .npy にし動画と共に返す（`modal run`） |
+| `run_job()` | Web用。復元 → `analysis.analyze_json` で指標JSONを返す |
+| `submit` / `result` | 非同期Webエンドポイント（投入 / 状態確認） |
+| `main()` | ローカルの動画を送り結果を引き戻す `modal run` の入口 |
 
 ## 注意
 

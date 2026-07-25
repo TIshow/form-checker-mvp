@@ -21,6 +21,8 @@ issue #2 のフェーズA/B。Colab で確定した環境レシピをそのま�
   # → python -m analysis で解析
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 
 import modal
@@ -51,7 +53,12 @@ image = (
         f"cd {GVHMR} && pip install -e .",
         "pip install huggingface_hub",
     )
+    # analysis（純numpy）をイメージに含める。run_job がサーバー側で指標を導出するため。
+    .add_local_python_source("analysis")
 )
+
+# Web エンドポイント用の軽量イメージ（GPU不要。fastapi だけ）
+web_image = modal.Image.debian_slim().pip_install("fastapi[standard]")
 
 app = modal.App("gvhmr-reconstruct")
 vol = modal.Volume.from_name("gvhmr-assets", create_if_missing=True)
@@ -84,13 +91,13 @@ def fetch_checkpoints():
             print(os.path.join(root, f))
 
 
-@app.function(image=image, gpu="T4", volumes={ASSETS: vol}, timeout=900)
-def reconstruct(video_bytes: bytes, name: str) -> dict:
-    """1本の動画を GVHMR で3D復元し、24関節(world座標)とレンダ動画を返す。
+def _gvhmr_joints(video_bytes: bytes, name: str):
+    """GVHMR を実行し、24関節(F,24,3 world座標[m])とレンダ動画を返す。
 
-    静止カメラ前提で `-s`（SLAM回避）。GPUを使うのはこの関数だけ。
-    重心・上軸・角度などの導出は analysis 側（純numpy）の責務。ここでは関節までを返す。
+    コンテナ内で動く純ヘルパー。CLI用 reconstruct と Web用 run_job が共有する。
+    静止カメラ前提で `-s`（SLAM回避）。
     """
+    import glob
     import os
     import subprocess
     import time
@@ -142,31 +149,72 @@ def reconstruct(video_bytes: bytes, name: str) -> dict:
     jreg = torch.load("hmr4d/utils/body_model/smpl_neutral_J_regressor.pt").to(dev)
     joints = torch.einsum("jv,fvc->fjc", jreg, verts).cpu().numpy()  # (F,24,3) m
 
-    import io
-
-    buf = io.BytesIO()
-    np.save(buf, joints)
-    out = {"gv_joints.npy": buf.getvalue()}
-
-    # GVHMR がレンダリングした3D動画も返す（入力動画のコピーは除く）。
-    #   *_incam*  : 元動画に3Dメッシュを重ねたもの（復元の当てはまりを確認できる）
-    #   *_global* : 世界座標での3D視点（重力基準の"3D動画"）
-    import glob
-
+    # GVHMR がレンダリングした3D動画（入力動画のコピーは除く）
+    renders = {}
     for mp4 in sorted(glob.glob(f"outputs/demo/{stem}/*.mp4")):
         base = os.path.basename(mp4)
         if "input" in base:
             continue
         with open(mp4, "rb") as f:
-            out[f"render_{base}"] = f.read()
-        print(f"[render] {base} ({os.path.getsize(mp4) / 1e6:.1f} MB)")
+            renders[f"render_{base}"] = f.read()
 
     elapsed = time.time() - t_start
     # T4 は $0.000164/秒（modal.com/pricing）。コンテナ起動分は別途上乗せ。
-    print(f"joints {joints.shape}")
-    print(f"[TIMING] GPU関数の実働 {elapsed:.1f}s  "
+    print(f"joints {joints.shape}  [TIMING] {elapsed:.1f}s "
           f"≒ ${elapsed * 0.000164:.4f} (T4, 起動分は別)")
-    return out
+    return joints, renders
+
+
+@app.function(image=image, gpu="T4", volumes={ASSETS: vol}, timeout=900)
+def reconstruct(video_bytes: bytes, name: str) -> dict:
+    """CLI用。関節を .npy にし、レンダ動画と共に返す（`modal run` → ローカル保存）。"""
+    import io
+
+    import numpy as np
+
+    joints, renders = _gvhmr_joints(video_bytes, name)
+    buf = io.BytesIO()
+    np.save(buf, joints)
+    return {"gv_joints.npy": buf.getvalue(), **renders}
+
+
+@app.function(image=image, gpu="T4", volumes={ASSETS: vol}, timeout=900)
+def run_job(video_bytes: bytes, name: str, fps: float) -> dict:
+    """Web用。復元 → analysis で指標・フィードバックを導出し、JSONで返す。"""
+    import analysis
+
+    joints, _ = _gvhmr_joints(video_bytes, name)
+    return analysis.analyze_json(joints, fps)
+
+
+# --------------------------------------------------------------------------
+# Web エンドポイント（非同期）
+#
+# 復元は約10分かかるため、投入と取得を分ける:
+#   POST /submit  … 動画(base64)を受けてジョブを投入し job_id を返す（即時）
+#   GET  /result  … job_id の状態を返す（pending / done+結果 / error）
+# --------------------------------------------------------------------------
+@app.function(image=web_image)
+@modal.fastapi_endpoint(method="POST", label="serve-submit")
+def submit(item: dict) -> dict:
+    """item = {video_b64: str, name?: str, fps?: float}"""
+    import base64
+
+    data = base64.b64decode(item["video_b64"])
+    call = run_job.spawn(data, item.get("name", "serve.mp4"), float(item.get("fps", 30.0)))
+    return {"job_id": call.object_id}
+
+
+@app.function(image=web_image)
+@modal.fastapi_endpoint(method="GET", label="serve-result")
+def result(job_id: str) -> dict:
+    fc = modal.FunctionCall.from_id(job_id)
+    try:
+        return {"status": "done", "result": fc.get(timeout=0)}
+    except TimeoutError:
+        return {"status": "pending"}
+    except Exception as e:  # ジョブ内で失敗した場合
+        return {"status": "error", "message": str(e)}
 
 
 @app.local_entrypoint()
