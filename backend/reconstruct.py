@@ -170,17 +170,32 @@ def reconstruct(video_bytes: bytes, name: str) -> dict:
         np.save(buf, arr)
         return buf.getvalue()
 
+    out = {
+        "gv_joints.npy": to_bytes(joints),
+        "gv_com.npy": to_bytes(com),
+        "gv_upaxis.npy": to_bytes(np.array([up_ax, up_sign])),
+    }
+
+    # GVHMR がレンダリングした3D動画も返す（入力動画のコピーは除く）。
+    #   *_incam*  : 元動画に3Dメッシュを重ねたもの（復元の当てはまりを確認できる）
+    #   *_global* : 世界座標での3D視点（重力基準の"3D動画"）
+    import glob
+
+    for mp4 in sorted(glob.glob(f"outputs/demo/{stem}/*.mp4")):
+        base = os.path.basename(mp4)
+        if "input" in base:
+            continue
+        with open(mp4, "rb") as f:
+            out[f"render_{base}"] = f.read()
+        print(f"[render] {base} ({os.path.getsize(mp4) / 1e6:.1f} MB)")
+
     elapsed = time.time() - t_start
     # T4 は $0.000164/秒（modal.com/pricing）。コンテナ起動分は別途上乗せ。
     print(f"joints {joints.shape} up_axis {up_ax} sign {up_sign:+.0f} "
           f"COM mean {com.mean(0).round(3)}")
     print(f"[TIMING] GPU関数の実働 {elapsed:.1f}s  "
           f"≒ ${elapsed * 0.000164:.4f} (T4, 起動分は別)")
-    return {
-        "gv_joints.npy": to_bytes(joints),
-        "gv_com.npy": to_bytes(com),
-        "gv_upaxis.npy": to_bytes(np.array([up_ax, up_sign])),
-    }
+    return out
 
 
 @app.local_entrypoint()
@@ -196,7 +211,7 @@ def main(video: str, out: str = "."):
     out_dir.mkdir(parents=True, exist_ok=True)
     for fname, content in results.items():
         (out_dir / fname).write_bytes(content)
-        print(f"✅ {out_dir / fname}")
+        print(f"✅ {out_dir / fname} ({len(content) / 1e6:.1f} MB)")
     print("→ 次: python -m analysis "
           f"--joints {out_dir}/gv_joints.npy --com {out_dir}/gv_com.npy "
-          f"--upaxis {out_dir}/gv_upaxis.npy --fps <実fps>")
+          f"--upaxis {out_dir}/gv_upaxis.npy --fps <実fps> --save {out_dir}")
