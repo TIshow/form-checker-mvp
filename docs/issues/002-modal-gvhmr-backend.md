@@ -79,17 +79,17 @@ modal run reconstruct.py --video temp_my_serve.mp4
 
 ## 作業計画
 
-### フェーズ A: 動く最小構成（新機能なし、Colabの再現）
-- [ ] Modal アカウント設定 / `modal` CLI 認証
-- [ ] GVHMR イメージ定義（P0レシピを Modal Image に移植）
-- [ ] Volume 作成、チェックポイントと body models を一度アップロード
-- [ ] GPU 関数で `demo.py --video X -s` を実行し `.pt` を生成
-- [ ] 付属 tennis.mp4 で完走を確認（Colabのスモークテスト相当）
+### フェーズ A: 動く最小構成（新機能なし、Colabの再現）✅ 完了 2026-07-25
+- [x] Modal アカウント設定 / `modal` CLI 認証
+- [x] GVHMR イメージ定義（P0レシピを Modal Image に移植）— ビルド234秒で成功
+- [x] Volume 作成、チェックポイントと body models を一度アップロード
+- [x] GPU 関数で `demo.py --video X -s` を実行し `.pt` を生成
 
-### フェーズ B: 出力を解析層につなぐ
-- [ ] `.pt` から `gv_joints.npy / gv_com.npy / gv_upaxis.npy` を生成（P0のCOM算出を移植）
-- [ ] ローカルへ結果を返す `modal run` ラッパー
-- [ ] `analysis/` に流して自分のサーブでレポートが出るまでを1コマンド化
+### フェーズ B: 出力を解析層につなぐ ✅ 完了 2026-07-25
+- [x] `.pt` から `gv_joints.npy / gv_com.npy / gv_upaxis.npy` を生成（P0のCOM算出を移植）
+- [x] ローカルへ結果を返す `modal run` ラッパー
+- [x] `analysis/` に流して自分のサーブでレポートが出るまでを1コマンド化
+- **Colabの結果と一致**: 沈み込み frame87/0.953m, 打点 frame103, 頂点 1.122m（Colab 1.120m）
 
 ### フェーズ C: 仕上げ
 - [ ] コールドスタート対策の検討（min-instances / 重みのVolumeマウント確認）
