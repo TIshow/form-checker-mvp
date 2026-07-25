@@ -180,11 +180,31 @@ def reconstruct(video_bytes: bytes, name: str) -> dict:
 
 @app.function(image=image, gpu="T4", volumes={ASSETS: vol}, timeout=900)
 def run_job(video_bytes: bytes, name: str, fps: float) -> dict:
-    """Web用。復元 → analysis で指標・フィードバックを導出し、JSONで返す。"""
+    """Web用。復元 → analysis で指標・フィードバックを導出し JSON で返す。
+
+    「現実+3Dメッシュの重ね合わせ」動画(incam)も base64 で同梱する
+    （フォームの当てはまりを目で確認できるため）。
+    """
+    import base64
+
     import analysis
 
-    joints, _ = _gvhmr_joints(video_bytes, name)
-    return analysis.analyze_json(joints, fps)
+    joints, renders = _gvhmr_joints(video_bytes, name)
+    res = analysis.analyze_json(joints, fps)
+
+    # 横並び(horiz) = 左:元動画+3Dメッシュ重ね / 右:別角度の3D。両方見える版を優先。
+    def pick(rs):
+        for key in ("horiz",):
+            v = next((v for k, v in rs.items() if key in k), None)
+            if v:
+                return v
+        v = next((v for k, v in rs.items() if "incam" in k), None)
+        return v or (next(iter(rs.values()), None) if rs else None)
+
+    overlay = pick(renders)
+    if overlay is not None:
+        res["overlay_video_b64"] = base64.b64encode(overlay).decode()
+    return res
 
 
 # --------------------------------------------------------------------------

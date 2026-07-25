@@ -89,6 +89,12 @@
         <table id="metrics"></table>
       </div>
     </div>
+    <div class="card hidden" id="overlayCard">
+      <h3 style="margin-top:0">現実との重ね合わせ ＋ 別角度の3D</h3>
+      <video id="overlayVideo" controls loop playsinline
+             style="width:100%;border-radius:8px;background:#000;max-height:520px"></video>
+      <div class="note">左: 元動画に復元3Dメッシュを重ねたもの（体に合っているほど復元が正確）／右: 同じ動きを別角度の3Dで。</div>
+    </div>
     <div class="card">
       <h3 style="margin-top:0">3Dフォーム</h3>
       <div id="viewer"></div>
@@ -208,6 +214,19 @@ function render(result, fps){
   ];
   $("metrics").innerHTML = rows.map(([k,v])=>
     `<tr><td class="k">${k}</td><td class="v">${v}</td></tr>`).join("");
+
+  // 現実+3D重ね合わせ動画（あれば）
+  const card = $("overlayCard"), vid = $("overlayVideo");
+  if(result.overlay_video_b64){
+    const bin = atob(result.overlay_video_b64);
+    const arr = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+    if(vid.src) URL.revokeObjectURL(vid.src);
+    vid.src = URL.createObjectURL(new Blob([arr], {type:"video/mp4"}));
+    card.classList.remove("hidden");
+  } else {
+    card.classList.add("hidden");
+  }
 
   initViewer(result.joints, result.up_axis, ph);
 }
