@@ -5,7 +5,7 @@
 > 通常はこちらを使う:
 > ```bash
 > modal run backend/reconstruct.py --video temp_my_serve.mp4
-> python -m analysis --joints gv_joints.npy --com gv_com.npy --upaxis gv_upaxis.npy --fps 30
+> python -m analysis --joints gv_joints.npy --fps 30 --save output
 > ```
 > 以下は「Colabでどう動かしたか」の歴史的記録として残す。Modal のイメージ定義は
 > このノートで確定したレシピを焼いたものなので、環境の詳細を追う際の参照になる。
@@ -95,9 +95,7 @@ Colabの通常カーネルでもローカルでも動く。
 import sys
 sys.path.insert(0, '/content/drive/MyDrive/gvhmr_backup')
 import analysis
-metrics, feedback = analysis.analyze_from_files(
-    '/content/gv_joints.npy', '/content/gv_com.npy',
-    '/content/gv_upaxis.npy', fps=30.0)
+metrics, feedback = analysis.analyze_from_files('/content/gv_joints.npy', fps=30.0)
 print(analysis.format_report(metrics, feedback))
 ```
 

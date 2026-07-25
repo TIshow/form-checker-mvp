@@ -106,8 +106,9 @@ tests/         合成サーブデータによる検証
 notebooks/     P0検証時の Colab 手順（記録・非推奨）
 ```
 
-3D復元は GPU が要るため Modal 上で実行し、その出力(`.npy`)を `analysis/` が読む、
-という分業になっている。`analysis/` はローカルでも動く。
+3D復元は GPU が要るため Modal 上で実行して**24関節**を返し、その関節から
+`analysis/` が重心・角度・フィードバックを導出する、という分業になっている。
+重心も上軸も関節の純関数なので、GPU側は関節までを担い、`analysis/` はローカルでも動く。
 
 ```bash
 uv venv && uv pip install -e ".[dev]"
@@ -115,8 +116,7 @@ pytest
 
 # 3D復元（Modal GPU）→ 解析。詳細は backend/README.md
 modal run backend/reconstruct.py --video temp_my_serve.mp4
-python -m analysis --joints gv_joints.npy --com gv_com.npy \
-                   --upaxis gv_upaxis.npy --fps 30
+python -m analysis --joints gv_joints.npy --fps 30 --save output
 ```
 
 ## 実行環境について

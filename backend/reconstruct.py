@@ -65,17 +65,6 @@ HF_FILES = [
     "yolo/yolov8x.pt",
 ]
 
-# De Leva 体節質量比 (親関節, 子関節, 質量比, 近位からのCOM比)。analysis と同一。
-_SEG = [
-    (0, 12, 0.497, 0.50), (12, 15, 0.081, 0.50),
-    (16, 18, 0.028, 0.436), (17, 19, 0.028, 0.436),
-    (18, 20, 0.016, 0.430), (19, 21, 0.016, 0.430),
-    (20, 22, 0.006, 0.50), (21, 23, 0.006, 0.50),
-    (1, 4, 0.100, 0.433), (2, 5, 0.100, 0.433),
-    (4, 7, 0.0465, 0.433), (5, 8, 0.0465, 0.433),
-    (7, 10, 0.0145, 0.50), (8, 11, 0.0145, 0.50),
-]
-
 
 @app.function(image=image, volumes={ASSETS: vol}, timeout=1800)
 def fetch_checkpoints():
@@ -97,9 +86,10 @@ def fetch_checkpoints():
 
 @app.function(image=image, gpu="T4", volumes={ASSETS: vol}, timeout=900)
 def reconstruct(video_bytes: bytes, name: str) -> dict:
-    """1本の動画を GVHMR で3D復元し、joints/com/upaxis を numpy で返す。
+    """1本の動画を GVHMR で3D復元し、24関節(world座標)とレンダ動画を返す。
 
     静止カメラ前提で `-s`（SLAM回避）。GPUを使うのはこの関数だけ。
+    重心・上軸・角度などの導出は analysis 側（純numpy）の責務。ここでは関節までを返す。
     """
     import os
     import subprocess
@@ -152,29 +142,11 @@ def reconstruct(video_bytes: bytes, name: str) -> dict:
     jreg = torch.load("hmr4d/utils/body_model/smpl_neutral_J_regressor.pt").to(dev)
     joints = torch.einsum("jv,fvc->fjc", jreg, verts).cpu().numpy()  # (F,24,3) m
 
-    # 上方向の軸（頭 - 足首）
-    up_vec = (joints[:, 15] - (joints[:, 7] + joints[:, 8]) / 2).mean(0)
-    up_ax = int(np.argmax(np.abs(up_vec)))
-    up_sign = float(np.sign(up_vec[up_ax]))
+    import io
 
-    # De Leva 体節質量比で全身重心
-    com = np.zeros((joints.shape[0], 3))
-    for a, b, m, r in _SEG:
-        com += m * (joints[:, a] * (1 - r) + joints[:, b] * r)
-    com /= sum(s[2] for s in _SEG)
-
-    def to_bytes(arr):
-        import io
-
-        buf = io.BytesIO()
-        np.save(buf, arr)
-        return buf.getvalue()
-
-    out = {
-        "gv_joints.npy": to_bytes(joints),
-        "gv_com.npy": to_bytes(com),
-        "gv_upaxis.npy": to_bytes(np.array([up_ax, up_sign])),
-    }
+    buf = io.BytesIO()
+    np.save(buf, joints)
+    out = {"gv_joints.npy": buf.getvalue()}
 
     # GVHMR がレンダリングした3D動画も返す（入力動画のコピーは除く）。
     #   *_incam*  : 元動画に3Dメッシュを重ねたもの（復元の当てはまりを確認できる）
@@ -191,8 +163,7 @@ def reconstruct(video_bytes: bytes, name: str) -> dict:
 
     elapsed = time.time() - t_start
     # T4 は $0.000164/秒（modal.com/pricing）。コンテナ起動分は別途上乗せ。
-    print(f"joints {joints.shape} up_axis {up_ax} sign {up_sign:+.0f} "
-          f"COM mean {com.mean(0).round(3)}")
+    print(f"joints {joints.shape}")
     print(f"[TIMING] GPU関数の実働 {elapsed:.1f}s  "
           f"≒ ${elapsed * 0.000164:.4f} (T4, 起動分は別)")
     return out
@@ -200,7 +171,7 @@ def reconstruct(video_bytes: bytes, name: str) -> dict:
 
 @app.local_entrypoint()
 def main(video: str, out: str = "."):
-    """ローカルの動画を Modal で復元し、結果 .npy をローカルへ保存する。"""
+    """ローカルの動画を Modal で復元し、関節 .npy とレンダ動画をローカルへ保存する。"""
     video_path = Path(video)
     data = video_path.read_bytes()
     print(f"送信: {video_path} ({len(data) / 1e6:.1f} MB) → Modal GPU で復元中…")
@@ -212,6 +183,5 @@ def main(video: str, out: str = "."):
     for fname, content in results.items():
         (out_dir / fname).write_bytes(content)
         print(f"✅ {out_dir / fname} ({len(content) / 1e6:.1f} MB)")
-    print("→ 次: python -m analysis "
-          f"--joints {out_dir}/gv_joints.npy --com {out_dir}/gv_com.npy "
-          f"--upaxis {out_dir}/gv_upaxis.npy --fps <実fps> --save {out_dir}")
+    print(f"→ 次: python -m analysis --joints {out_dir}/gv_joints.npy "
+          f"--fps <実fps> --save {out_dir}")

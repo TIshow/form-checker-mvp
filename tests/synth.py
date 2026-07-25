@@ -59,7 +59,8 @@ def synth_serve(fps: float = 30.0, good_chain: bool = True,
         t_hip, t_sh = T_CONTACT - 0.15, T_CONTACT - 0.34
     t_ua, t_fa = T_CONTACT - 0.14, T_CONTACT - 0.06
     t_fall = T_CONTACT + 0.40
-    t_reach = T_CONTACT + (0.23 if contact_late else 0.0)
+    # 遅れ打点は閾値(0.10s)から十分離す。境界に乗ると全身重心の導出差で揺れるため。
+    t_reach = T_CONTACT + (0.38 if contact_late else 0.0)
 
     hip_ang = _swing(t, t_hip, t_fall, 1.0)
     sh_ang = _swing(t, t_sh, t_fall, 1.4)

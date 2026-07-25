@@ -1,8 +1,9 @@
 # backend — GVHMR を Modal のサーバーレスGPUで動かす
 
-3D復元 (GVHMR) を Modal 上で実行し、`gv_joints.npy` / `gv_com.npy` /
-`gv_upaxis.npy` を返す。GPUを使うのはこの復元段だけで、後段の [analysis/](../analysis/)
-は CPU/ローカルで動く。
+3D復元 (GVHMR) を Modal 上で実行し、**24関節** (`gv_joints.npy`) と
+レンダリング動画を返す。GPUを使うのはこの復元段だけで、重心・角度・フィードバックの
+導出は後段の [analysis/](../analysis/)（純numpy、CPU/ローカル）の責務。
+重心も上軸も関節の純関数なので、GPU側は関節までを担う。
 
 計画と背景は [docs/issues/002](../docs/issues/002-modal-gvhmr-backend.md)。
 
@@ -34,10 +35,9 @@ modal volume put gvhmr-assets \
 
 ```bash
 modal run backend/reconstruct.py --video temp_my_serve.mp4
-# → gv_joints.npy / gv_com.npy / gv_upaxis.npy がカレントに返る
+# → gv_joints.npy とレンダ動画 render_*.mp4 がカレントに返る
 
-python -m analysis --joints gv_joints.npy --com gv_com.npy \
-                   --upaxis gv_upaxis.npy --fps 30
+python -m analysis --joints gv_joints.npy --fps 30 --save output
 ```
 
 ブラウザもセッション管理も不要。将来この関数に HTTP エンドポイントを足せば
@@ -50,7 +50,7 @@ python -m analysis --joints gv_joints.npy --com gv_com.npy \
 | `image` | GVHMR の環境（Python 3.10 / torch 2.3+cu121 / chumpy / turtleバグ除去） |
 | Volume `gvhmr-assets` | チェックポイント + body models。一度置けば毎回マウント |
 | `fetch_checkpoints()` | HuggingFace `ryanrudes/gvhmr` から4つのckptを取得（初回のみ） |
-| `reconstruct()` | GPU関数。`demo.py -s` で復元し、SMPL-X→SMPL 24関節→De Leva重心を返す |
+| `reconstruct()` | GPU関数。`demo.py -s` で復元し、SMPL-X→SMPL 24関節とレンダ動画を返す |
 | `main()` | ローカルの動画を送り、結果 .npy を引き戻す `modal run` の入口 |
 
 ## 注意

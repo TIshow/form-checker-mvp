@@ -21,16 +21,14 @@ P1のパイプラインは `serve.py` だけを import すればよく、閾値�
 ```python
 import analysis
 
-metrics, feedback = analysis.analyze_from_files(
-    "gv_joints.npy", "gv_com.npy", "gv_upaxis.npy", fps=120.0)
+metrics, feedback = analysis.analyze_from_files("gv_joints.npy", fps=120.0)
 print(analysis.format_report(metrics, feedback))
 ```
 
 CLI:
 
 ```bash
-python -m analysis --joints gv_joints.npy --com gv_com.npy \
-                   --upaxis gv_upaxis.npy --fps 120
+python -m analysis --joints gv_joints.npy --fps 120
 ```
 
 Colab で使う場合は、このディレクトリを Google ドライブに置いて
@@ -38,13 +36,14 @@ Colab で使う場合は、このディレクトリを Google ドライブに置
 
 ## 入力
 
-`notebooks/` のパイプラインが出力する3ファイル。
+`backend/` が出力する関節ファイル 1つ。
 
 | ファイル | 形状 | 内容 |
 |---|---|---|
 | `gv_joints.npy` | (F, 24, 3) | SMPL 24関節の world座標 [m] |
-| `gv_com.npy` | (F, 3) | 全身重心の world座標 [m] |
-| `gv_upaxis.npy` | (2,) | 上方向の軸index と符号 |
+
+重心と上軸はこの関節から導出する（`serve.compute_com` / `serve.detect_up_axis`）。
+つまり重心計算の定義はこの一箇所だけにある。3D復元(GVHMR)側は関節までを返す。
 
 ## 閾値の信頼度を3段階に分ける
 

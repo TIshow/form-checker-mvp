@@ -29,24 +29,18 @@ __all__ = [
 ]
 
 
-def analyze(joints: np.ndarray, com: np.ndarray, up_ax: int, up_sign: float,
-            fps: float = 30.0) -> tuple[dict, list[dict]]:
+def analyze(joints: np.ndarray, fps: float = 30.0) -> tuple[dict, list[dict]]:
     """関節データから指標とフィードバックを求める。
 
     joints  (F, 24, 3) SMPL 24関節の world座標 [m]
-    com     (F, 3)     全身重心の world座標 [m]
-    up_ax   上方向の軸index, up_sign その符号
+    重心・上軸は関節から導出する（`serve.compute_com` / `serve.detect_up_axis`）。
     """
-    kin = ServeKinematics(joints, com, up_ax, up_sign, fps)
+    kin = ServeKinematics(joints, fps)
     metrics = compute_metrics(kin)
     return metrics, generate_feedback(metrics)
 
 
 def analyze_from_files(joints_path: str = "gv_joints.npy",
-                       com_path: str = "gv_com.npy",
-                       upaxis_path: str = "gv_upaxis.npy",
                        fps: float = 30.0) -> tuple[dict, list[dict]]:
-    """GVHMRパイプラインが出力した .npy から解析する。"""
-    up_ax, up_sign = np.load(upaxis_path)
-    return analyze(np.load(joints_path), np.load(com_path),
-                   int(up_ax), float(up_sign), fps)
+    """GVHMRパイプラインが出力した関節 .npy から解析する。"""
+    return analyze(np.load(joints_path), fps)

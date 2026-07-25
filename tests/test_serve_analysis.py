@@ -13,12 +13,12 @@ import pytest
 
 import analysis
 from analysis import feedback as fb
-from tests.synth import UP_AXIS, UP_SIGN, synth_serve
+from tests.synth import synth_serve
 
 
 def run(fps: float = 30.0, **kw):
-    joints, com = synth_serve(fps=fps, **kw)
-    return analysis.analyze(joints, com, UP_AXIS, UP_SIGN, fps=fps)
+    joints, _ = synth_serve(fps=fps, **kw)
+    return analysis.analyze(joints, fps=fps)
 
 
 def ids(feedback: list[dict]) -> list[str]:
@@ -181,12 +181,19 @@ def test_detects_bent_elbow_at_contact():
 # 入出力
 # --------------------------------------------------------------------------
 def test_analyze_from_files(tmp_path):
-    joints, com = synth_serve(fps=120.0)
+    joints, _ = synth_serve(fps=120.0)
     np.save(tmp_path / "j.npy", joints)
-    np.save(tmp_path / "c.npy", com)
-    np.save(tmp_path / "u.npy", np.array([UP_AXIS, UP_SIGN]))
 
-    metrics, _ = analysis.analyze_from_files(
-        str(tmp_path / "j.npy"), str(tmp_path / "c.npy"),
-        str(tmp_path / "u.npy"), fps=120.0)
+    metrics, _ = analysis.analyze_from_files(str(tmp_path / "j.npy"), fps=120.0)
     assert metrics["n_frames"] == joints.shape[0]
+
+
+def test_com_derived_from_joints_is_anatomical():
+    """関節から導出した重心が身長の約半分に来る（移動が忠実かの確認）。"""
+    from analysis.serve import compute_com, detect_up_axis
+    joints, _ = synth_serve(fps=30.0)
+    com = compute_com(joints)
+    up_ax, up_sign = detect_up_axis(joints)
+    h = com[:, up_ax] * up_sign
+    assert 0.5 < h.min() < 1.5
+    assert up_ax == 1 and up_sign == 1.0

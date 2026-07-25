@@ -39,6 +39,36 @@ L_HAND, R_HAND = 22, 23
 CHAIN_MIN_SPEED_DEG_S = 30.0  # これ未満の角速度しか出ないセグメントは信用しない
 CHAIN_REL_SPEED = 0.15        # 最大ピークに対する相対比
 
+# De Leva の体節質量比 (親関節, 子関節, 質量比, 近位からのCOM比)。合計 ≒ 1.0。
+# 体幹49.7% / 頭8.1% / 大腿 各10% / 下腿 各4.65% / 上腕 各2.8% ほか。
+SEGMENTS = [
+    (PELVIS, NECK, 0.497, 0.50), (NECK, HEAD, 0.081, 0.50),
+    (L_SHOULDER, L_ELBOW, 0.028, 0.436), (R_SHOULDER, R_ELBOW, 0.028, 0.436),
+    (L_ELBOW, L_WRIST, 0.016, 0.430), (R_ELBOW, R_WRIST, 0.016, 0.430),
+    (L_WRIST, L_HAND, 0.006, 0.50), (R_WRIST, R_HAND, 0.006, 0.50),
+    (L_HIP, L_KNEE, 0.100, 0.433), (R_HIP, R_KNEE, 0.100, 0.433),
+    (L_KNEE, L_ANKLE, 0.0465, 0.433), (R_KNEE, R_ANKLE, 0.0465, 0.433),
+    (L_ANKLE, L_FOOT, 0.0145, 0.50), (R_ANKLE, R_FOOT, 0.0145, 0.50),
+]
+
+
+def compute_com(joints: np.ndarray) -> np.ndarray:
+    """24関節から全身重心を計算する [m]。De Leva の体節質量比で加重平均。
+
+    純関数。3D復元(GVHMR)の外で導出できるため、ここが重心計算の唯一の定義。
+    """
+    com = np.zeros((joints.shape[0], 3))
+    for a, b, mass, r in SEGMENTS:
+        com += mass * (joints[:, a] * (1 - r) + joints[:, b] * r)
+    return com / sum(s[2] for s in SEGMENTS)
+
+
+def detect_up_axis(joints: np.ndarray) -> tuple[int, float]:
+    """上方向の軸と符号を関節から推定する（頭 − 足首の平均ベクトル）。"""
+    up_vec = (joints[:, HEAD] - (joints[:, L_ANKLE] + joints[:, R_ANKLE]) / 2).mean(0)
+    up_ax = int(np.argmax(np.abs(up_vec)))
+    return up_ax, float(np.sign(up_vec[up_ax]))
+
 
 # --------------------------------------------------------------------------
 # 幾何ユーティリティ
@@ -100,16 +130,15 @@ class ServeKinematics:
         "ankle": (R_ANKLE, L_ANKLE),
     }
 
-    def __init__(self, joints: np.ndarray, com: np.ndarray,
-                 up_ax: int, up_sign: float, fps: float = 30.0):
+    def __init__(self, joints: np.ndarray, fps: float = 30.0):
         self.J = joints
-        self.com = com
-        self.up_ax = int(up_ax)
-        self.up_sign = float(up_sign)
         self.fps = float(fps)
         self.F = joints.shape[0]
 
-        self.com_height = self.height(com)
+        # 重心・上軸は関節から導出する（3D復元の外で完結する純計算）
+        self.up_ax, self.up_sign = detect_up_axis(joints)
+        self.com = compute_com(joints)
+        self.com_height = self.height(self.com)
         self.racket_side = self._detect_racket_side()
 
     def height(self, p: np.ndarray) -> np.ndarray:
