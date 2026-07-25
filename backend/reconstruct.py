@@ -188,33 +188,48 @@ def run_job(video_bytes: bytes, name: str, fps: float) -> dict:
 
 
 # --------------------------------------------------------------------------
-# Web エンドポイント（非同期）
+# Web API（非同期）
 #
-# 復元は約10分かかるため、投入と取得を分ける:
+# 復元は数分かかるため、投入と取得を分ける:
 #   POST /submit  … 動画(base64)を受けてジョブを投入し job_id を返す（即時）
 #   GET  /result  … job_id の状態を返す（pending / done+結果 / error）
+#
+# ブラウザから叩くため CORS を許可する。単一の ASGI アプリにまとめると
+# CORS ミドルウェアを付けられ、URL も1つで済む。
 # --------------------------------------------------------------------------
 @app.function(image=web_image)
-@modal.fastapi_endpoint(method="POST", label="serve-submit")
-def submit(item: dict) -> dict:
-    """item = {video_b64: str, name?: str, fps?: float}"""
-    import base64
+@modal.asgi_app(label="serve-api")
+def web():
+    from fastapi import FastAPI
+    from fastapi.middleware.cors import CORSMiddleware
 
-    data = base64.b64decode(item["video_b64"])
-    call = run_job.spawn(data, item.get("name", "serve.mp4"), float(item.get("fps", 30.0)))
-    return {"job_id": call.object_id}
+    api = FastAPI(title="Tennis serve analysis")
+    api.add_middleware(
+        CORSMiddleware, allow_origins=["*"],
+        allow_methods=["*"], allow_headers=["*"],
+    )
 
+    @api.post("/submit")
+    def submit(item: dict):
+        """item = {video_b64: str, name?: str, fps?: float}"""
+        import base64
 
-@app.function(image=web_image)
-@modal.fastapi_endpoint(method="GET", label="serve-result")
-def result(job_id: str) -> dict:
-    fc = modal.FunctionCall.from_id(job_id)
-    try:
-        return {"status": "done", "result": fc.get(timeout=0)}
-    except TimeoutError:
-        return {"status": "pending"}
-    except Exception as e:  # ジョブ内で失敗した場合
-        return {"status": "error", "message": str(e)}
+        data = base64.b64decode(item["video_b64"])
+        call = run_job.spawn(
+            data, item.get("name", "serve.mp4"), float(item.get("fps", 30.0)))
+        return {"job_id": call.object_id}
+
+    @api.get("/result")
+    def result(job_id: str):
+        fc = modal.FunctionCall.from_id(job_id)
+        try:
+            return {"status": "done", "result": fc.get(timeout=0)}
+        except TimeoutError:
+            return {"status": "pending"}
+        except Exception as e:  # ジョブ内で失敗した場合
+            return {"status": "error", "message": str(e)}
+
+    return api
 
 
 @app.local_entrypoint()

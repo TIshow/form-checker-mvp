@@ -60,11 +60,21 @@ CLI（`modal run` → `python -m analysis`）でエンドツーエンドが通�
   （frame 87/103、肘131°、feedback「打点で肘が曲がっています」）。待ち時間177秒
 - エンドポイント: POST serve-submit / GET serve-result（tishow workspace）
 
-### フェーズ B: フロント（Vercel）
-- [ ] アップロードUI（fps 入力を含む）
-- [ ] 「解析中…」の進捗表示（ポーリング or webhook）
-- [ ] 結果画面: コーチング文＋主要数値（生グラフは主役にしない）
-- [ ] 3Dビューア（Three.js で骨格を自由視点）
+### フェーズ B: フロント（B→A: まず単一HTML、次に Vercel）
+
+**B-1 単一HTMLプロトタイプ ✅ 完了 2026-07-25**（[../../web/index.html](../../web/index.html)）
+- [x] アップロードUI（fps 入力を含む）
+- [x] 「解析中…」の進捗表示（5秒間隔ポーリング）
+- [x] 結果画面: コーチング文＋主要数値（生グラフは主役にしない）
+- [x] 3Dビューア（Three.js で骨格を自由視点、沈み込み/打点で色変化）
+- [x] CORS 対応（Modal を単一 ASGI アプリ化: `serve-api`）
+- 検証: ブラウザでサンプル結果を描画。骨格が直立で正しく表示、数値・フィードバック・
+  fps警告すべて表示。HTTP契約はフェーズAで実地確認済み
+
+**B-2 Vercel/Next.js への載せ替え（次）**
+- [ ] Next.js 化して Vercel デプロイ
+- [ ] Modal URL を環境変数化 / API プロキシ
+- [ ] 動画投入を base64 → multipart などに
 
 ### フェーズ C: 仕上げ
 - [ ] コールドスタート約10分をUXでどう見せるか（メール通知 or 画面保持）

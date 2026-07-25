@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>テニスサーブ解析</title>
+<style>
+  :root { --bg:#0f1216; --card:#1a1f27; --line:#2a323d; --fg:#e7ecf2; --muted:#94a3b8;
+          --accent:#2563eb; --warn:#f59e0b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font-family: -apple-system, "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
+         line-height:1.6; }
+  header { padding:20px 24px; border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:18px; font-weight:600; }
+  header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+  main { max-width:1040px; margin:0 auto; padding:24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:18px 20px; margin-bottom:16px; }
+  label { display:block; font-size:13px; color:var(--muted); margin:0 0 6px; }
+  input[type=file], input[type=number] {
+    background:#11151b; color:var(--fg); border:1px solid var(--line);
+    border-radius:8px; padding:9px 11px; font-size:14px; width:100%; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; align-items:end; }
+  .row > div { flex:1; min-width:180px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px;
+           padding:11px 20px; font-size:14px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .status { color:var(--muted); font-size:14px; }
+  .hidden { display:none; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:820px){ .grid { grid-template-columns:1fr; } }
+  .fb { border-left:3px solid var(--accent); padding:10px 14px; margin:0 0 12px;
+        background:#121720; border-radius:0 8px 8px 0; }
+  .fb .t { font-weight:600; }
+  .fb .d { color:var(--muted); font-size:13px; }
+  .fb .c { margin-top:4px; }
+  .fb.tierA { border-color:#22c55e; } .fb.tierB { border-color:var(--warn); }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td { padding:6px 4px; border-bottom:1px solid var(--line); }
+  td.k { color:var(--muted); } td.v { text-align:right; font-variant-numeric:tabular-nums; }
+  #viewer { width:100%; height:420px; background:#0b0e12; border-radius:8px; }
+  .vctl { display:flex; gap:12px; align-items:center; margin-top:10px; font-size:13px;
+          color:var(--muted); }
+  .vctl input[type=range]{ flex:1; }
+  .warn { color:var(--warn); font-size:13px; margin-top:8px; }
+  .note { color:var(--muted); font-size:12px; margin-top:6px; }
+  a.small { color:var(--muted); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎾 テニスサーブ解析</h1>
+  <p>動画をアップロードすると、3Dで復元してフォームのフィードバックを返します。</p>
+</header>
+
+<main>
+  <div class="card" id="uploadCard">
+    <div class="row">
+      <div>
+        <label>サーブ動画（三脚固定・全身が映るもの）</label>
+        <input type="file" id="file" accept="video/*" />
+      </div>
+      <div style="max-width:140px">
+        <label>撮影fps</label>
+        <input type="number" id="fps" value="30" min="1" max="240" />
+      </div>
+      <div style="flex:0 0 auto">
+        <button id="go" disabled>解析する</button>
+      </div>
+    </div>
+    <div class="note">※ 3D復元はクラウドGPUで行うため、結果まで数分かかります。
+      キネティックチェーン（力の伝達順序）の評価には120fps以上が必要です。</div>
+  </div>
+
+  <div class="card hidden" id="progressCard">
+    <div class="status" id="status">準備中…</div>
+  </div>
+
+  <div id="results" class="hidden">
+    <div class="grid">
+      <div class="card">
+        <h3 style="margin-top:0">改善ポイント</h3>
+        <div id="feedback"></div>
+        <div id="fpsWarn" class="warn hidden"></div>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">主要数値</h3>
+        <table id="metrics"></table>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">3Dフォーム</h3>
+      <div id="viewer"></div>
+      <div class="vctl">
+        <button id="play" style="padding:6px 14px">⏸</button>
+        <input type="range" id="frame" min="0" value="0" />
+        <span id="frameLabel">0</span>
+      </div>
+      <div class="note">ドラッグで回転・スクロールでズーム。オレンジ=沈み込み、赤=打点。</div>
+    </div>
+  </div>
+
+  <p><a class="small" href="#" id="loadSample">（サンプル結果を読み込む）</a></p>
+</main>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const API = "https://tishow--serve-api.modal.run";
+// SMPL 24関節の親子（骨）
+const BONES = [[1,0],[2,0],[3,0],[4,1],[5,2],[6,3],[7,4],[8,5],[9,6],[10,7],
+  [11,8],[12,9],[13,9],[14,9],[15,12],[16,13],[17,14],[18,16],[19,17],
+  [20,18],[21,19],[22,20],[23,21]];
+
+const $ = (id) => document.getElementById(id);
+const fileEl = $("file"), goEl = $("go");
+fileEl.onchange = () => { goEl.disabled = !fileEl.files.length; };
+
+goEl.onclick = async () => {
+  const f = fileEl.files[0]; if (!f) return;
+  const fps = parseFloat($("fps").value) || 30;
+  show("progressCard"); $("results").classList.add("hidden");
+  setStatus("動画を送信中…");
+  const b64 = await toBase64(f);
+  let job;
+  try {
+    const r = await fetch(API + "/submit", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ video_b64:b64, name:f.name, fps }) });
+    job = (await r.json()).job_id;
+  } catch(e){ setStatus("送信に失敗しました: " + e); return; }
+
+  const t0 = Date.now();
+  const poll = async () => {
+    const el = Math.round((Date.now()-t0)/1000);
+    try {
+      const r = await fetch(`${API}/result?job_id=${job}`);
+      const s = await r.json();
+      if (s.status === "done") { setStatus(""); render(s.result, fps); return; }
+      if (s.status === "error") { setStatus("解析エラー: " + s.message); return; }
+      setStatus(`解析中… ${el}秒（3D復元に数分かかります）`);
+    } catch(e){ setStatus(`通信待ち… ${el}秒`); }
+    setTimeout(poll, 5000);
+  };
+  poll();
+};
+
+$("loadSample").onclick = async (e) => {
+  e.preventDefault(); show("progressCard"); setStatus("サンプルを読み込み中…");
+  try {
+    const r = await fetch("result_sample.json");
+    render(await r.json(), 30);
+    setStatus("");
+  } catch(err){ setStatus("サンプルが見つかりません（result_sample.json）"); }
+};
+
+function toBase64(file){
+  return new Promise((res,rej)=>{
+    const r = new FileReader();
+    r.onload = () => res(r.result.split(",")[1]);
+    r.onerror = rej; r.readAsDataURL(file);
+  });
+}
+function show(id){ $("progressCard").classList.remove("hidden");
+  $("uploadCard").scrollIntoView({behavior:"smooth"}); }
+function setStatus(t){ $("status").textContent = t;
+  if(!t) $("progressCard").classList.add("hidden"); }
+
+function render(result, fps){
+  $("results").classList.remove("hidden");
+  const m = result.metrics, ph = m.phases;
+
+  // フィードバック
+  const fb = $("feedback"); fb.innerHTML = "";
+  if(!result.feedback.length){
+    fb.innerHTML = '<div class="fb tierA"><div class="t">大きな問題は検出されませんでした</div></div>';
+  }
+  for(const f of result.feedback.slice(0,2)){
+    const d = document.createElement("div");
+    d.className = "fb tier" + (f.tier||"");
+    d.innerHTML = `<div class="t">${f.title}</div><div class="d">${f.detail||""}</div>`+
+                  `<div class="c">→ ${f.cue||""}</div>`;
+    fb.appendChild(d);
+  }
+  const warn = $("fpsWarn");
+  if(fps < 60){ warn.classList.remove("hidden");
+    warn.textContent = "⚠️ 力の伝達順序（キネティックチェーン）は "+fps+
+      "fps では判定できません。120fps以上で撮ると評価できます。"; }
+  else warn.classList.add("hidden");
+
+  // 主要数値
+  const rows = [
+    ["利き手(推定)", m.racket_side === "R" ? "右" : "左"],
+    ["沈み込み", `frame ${ph.loading}（${(ph.loading/m.fps).toFixed(2)}s）`],
+    ["打点", `frame ${ph.contact}（${(ph.contact/m.fps).toFixed(2)}s）`],
+    ["重心の伸び上がり", `${(m.com_rise_m*100).toFixed(1)} cm / ${m.drive_time_s.toFixed(2)} 秒`],
+    ["沈み込み膝角", `${m.min_knee_deg_overall.toFixed(0)}°（プロ約115°）`],
+    ["打点タイミング", `${m.contact_vs_compeak_s>=0?"+":""}${m.contact_vs_compeak_s.toFixed(2)} 秒（0が理想）`],
+    ["打点の肘角", `${m.elbow_at_contact_deg.toFixed(0)}°（プロ約150°）`],
+  ];
+  $("metrics").innerHTML = rows.map(([k,v])=>
+    `<tr><td class="k">${k}</td><td class="v">${v}</td></tr>`).join("");
+
+  initViewer(result.joints, result.up_axis, ph);
+}
+
+// ---- 3Dビューア ----
+let viewerState = null;
+function initViewer(joints, upAxis, ph){
+  const host = $("viewer"); host.innerHTML = "";
+  const W = host.clientWidth, H = host.clientHeight;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(45, W/H, 0.01, 100);
+  const renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(W,H); renderer.setPixelRatio(window.devicePixelRatio);
+  host.appendChild(renderer.domElement);
+  const controls = new OrbitControls(camera, renderer.domElement);
+
+  // 上軸をThree.jsの+yに合わせて表示座標へ変換し、中心化
+  const [upAx, upSign] = upAxis;
+  const horiz = [0,1,2].filter(a=>a!==upAx);
+  const F = joints.length, J = joints[0].length;
+  const disp = joints.map(fr => fr.map(p =>
+    [ p[horiz[0]], p[upAx]*upSign, p[horiz[1]] ]));
+  // 中心化（全フレーム平均）
+  const c=[0,0,0]; let n=0;
+  for(const fr of disp) for(const p of fr){ c[0]+=p[0]; c[1]+=p[1]; c[2]+=p[2]; n++; }
+  c.forEach((_,i)=>c[i]/=n);
+  for(const fr of disp) for(const p of fr){ p[0]-=c[0]; p[1]-=c[1]; p[2]-=c[2]; }
+
+  scene.add(new THREE.HemisphereLight(0xffffff,0x444444,1.2));
+  const grid = new THREE.GridHelper(4,8,0x333a44,0x222831);
+  grid.position.y = Math.min(...disp.flat().map(p=>p[1]));
+  scene.add(grid);
+
+  // 骨と関節
+  const boneGeom = new THREE.BufferGeometry();
+  const bonePos = new Float32Array(BONES.length*2*3);
+  boneGeom.setAttribute("position", new THREE.BufferAttribute(bonePos,3));
+  const boneMat = new THREE.LineBasicMaterial({color:0x9db2cc});
+  scene.add(new THREE.LineSegments(boneGeom, boneMat));
+  const jointMat = new THREE.MeshBasicMaterial({color:0x2563eb});
+  const spheres = [];
+  for(let j=0;j<J;j++){
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.022,10,10), jointMat.clone());
+    scene.add(s); spheres.push(s);
+  }
+  camera.position.set(2.2,1.2,2.2); controls.target.set(0,0.2,0);
+
+  function setFrame(i){
+    const fr = disp[i];
+    for(let j=0;j<J;j++) spheres[j].position.set(fr[j][0],fr[j][1],fr[j][2]);
+    let k=0;
+    for(const [a,b] of BONES){
+      bonePos[k++]=fr[a][0]; bonePos[k++]=fr[a][1]; bonePos[k++]=fr[a][2];
+      bonePos[k++]=fr[b][0]; bonePos[k++]=fr[b][1]; bonePos[k++]=fr[b][2];
+    }
+    boneGeom.attributes.position.needsUpdate = true;
+    // 打点/沈み込みで色を変える
+    const col = i===ph.contact ? 0xef4444 : i===ph.loading ? 0xf59e0b : 0x2563eb;
+    for(const s of spheres) s.material.color.setHex(col);
+    $("frame").value = i; $("frameLabel").textContent = i;
+  }
+
+  const slider = $("frame"); slider.max = F-1; slider.value = 0;
+  slider.oninput = () => { pause(); setFrame(parseInt(slider.value)); };
+  let playing = true, cur = 0, last = 0;
+  const playBtn = $("play");
+  function pause(){ playing=false; playBtn.textContent="▶"; }
+  function play(){ playing=true; playBtn.textContent="⏸"; }
+  playBtn.onclick = () => playing ? pause() : play();
+
+  function loop(t){
+    if(viewerState !== state) return; // 別解析に切り替わったら停止
+    controls.update();
+    if(playing && t-last > (1000/fps)){ cur=(cur+1)%F; setFrame(cur); last=t; }
+    renderer.render(scene,camera);
+    requestAnimationFrame(loop);
+  }
+  const state = {}; viewerState = state;
+  setFrame(0); play(); requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>
