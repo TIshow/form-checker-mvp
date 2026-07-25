@@ -46,6 +46,10 @@
   .warn { color:var(--warn); font-size:13px; margin-top:8px; }
   .note { color:var(--muted); font-size:12px; margin-top:6px; }
   a.small { color:var(--muted); font-size:12px; }
+  .sw { width:20px; height:20px; border-radius:50%; cursor:pointer; display:inline-block;
+        border:2px solid transparent; }
+  .sw.active { border-color:#fff; box-shadow:0 0 0 1px #000; }
+  #drawTools.off { opacity:.5; }
 </style>
 </head>
 <body>
@@ -97,13 +101,25 @@
     </div>
     <div class="card">
       <h3 style="margin-top:0">3Dフォーム</h3>
-      <div id="viewer"></div>
+      <div id="viewerWrap" style="position:relative">
+        <div id="viewer"></div>
+        <canvas id="draw" style="position:absolute; inset:0; touch-action:none;
+                pointer-events:none; border-radius:8px;"></canvas>
+      </div>
       <div class="vctl">
         <button id="play" style="padding:6px 14px">⏸</button>
         <input type="range" id="frame" min="0" value="0" />
         <span id="frameLabel">0</span>
       </div>
-      <div class="note">ドラッグで回転・スクロールでズーム。オレンジ=沈み込み、赤=打点。</div>
+      <div class="vctl" id="drawTools">
+        <button id="modeBtn" style="padding:6px 12px">✏️ 描き込み</button>
+        <span class="sw" data-c="#ef4444" style="background:#ef4444"></span>
+        <span class="sw" data-c="#fbbf24" style="background:#fbbf24"></span>
+        <span class="sw" data-c="#22d3ee" style="background:#22d3ee"></span>
+        <span class="sw" data-c="#ffffff" style="background:#ffffff"></span>
+        <button id="clearBtn" style="padding:6px 12px; background:#374151">消去</button>
+      </div>
+      <div class="note" id="viewerNote">ドラッグで回転・スクロールでズーム。オレンジ=沈み込み、赤=打点。</div>
     </div>
   </div>
 
@@ -231,6 +247,68 @@ function render(result, fps){
   initViewer(result.joints, result.up_axis, ph);
 }
 
+// ---- 描き込み（2Dオーバーレイ）----
+// 静止フレームに指/ペンで描ける。コーチが角度を決めて説明するのに使う。
+// 描画は画面座標なので、3Dを回すと合わなくなる → 描き込み中は回転を止める。
+const drawState = { mode:"orbit", color:"#ef4444", drawing:false,
+                    ctx:null, controls:null, pause:null };
+let drawWired = false;
+function wireDrawOnce(){
+  if(drawWired) return; drawWired = true;
+  const cv = $("draw");
+  const p = (e) => { const r = cv.getBoundingClientRect();
+    return { x:e.clientX - r.left, y:e.clientY - r.top }; };
+  cv.onpointerdown = (e) => {
+    if(drawState.mode!=="draw") return;
+    drawState.drawing = true; cv.setPointerCapture(e.pointerId);
+    const {x,y} = p(e); const c = drawState.ctx;
+    c.strokeStyle = drawState.color; c.lineWidth = 4;
+    c.lineCap = "round"; c.lineJoin = "round";
+    c.beginPath(); c.moveTo(x,y);
+  };
+  cv.onpointermove = (e) => {
+    if(!drawState.drawing) return;
+    const {x,y} = p(e); drawState.ctx.lineTo(x,y); drawState.ctx.stroke();
+  };
+  cv.onpointerup = cv.onpointercancel = () => { drawState.drawing = false; };
+
+  $("modeBtn").onclick = () => {
+    const toDraw = drawState.mode==="orbit";
+    drawState.mode = toDraw ? "draw" : "orbit";
+    if(drawState.controls) drawState.controls.enabled = !toDraw;
+    cv.style.pointerEvents = toDraw ? "auto" : "none";
+    $("modeBtn").textContent = toDraw ? "🔄 回転に戻る" : "✏️ 描き込み";
+    $("drawTools").classList.toggle("off", !toDraw);
+    $("viewerNote").textContent = toDraw
+      ? "描き込みモード: 指/マウスで線を引けます（回転は停止中）。"
+      : "ドラッグで回転・スクロールでズーム。オレンジ=沈み込み、赤=打点。";
+    if(toDraw && drawState.pause) drawState.pause();  // 静止フレームに描く
+  };
+  $("clearBtn").onclick = () => {
+    const cv2 = $("draw");
+    drawState.ctx.clearRect(0,0,cv2.width,cv2.height);
+  };
+  document.querySelectorAll(".sw").forEach(sw => {
+    sw.onclick = () => {
+      drawState.color = sw.dataset.c;
+      document.querySelectorAll(".sw").forEach(s=>s.classList.remove("active"));
+      sw.classList.add("active");
+    };
+  });
+  document.querySelector(".sw").classList.add("active");
+}
+function setupDrawCanvas(W, H, controls, pauseFn){
+  wireDrawOnce();
+  const cv = $("draw"), dpr = window.devicePixelRatio || 1;
+  cv.width = W*dpr; cv.height = H*dpr; cv.style.width = W+"px"; cv.style.height = H+"px";
+  const ctx = cv.getContext("2d"); ctx.scale(dpr,dpr);
+  drawState.ctx = ctx; drawState.controls = controls; drawState.pause = pauseFn;
+  // 別解析に切り替わったらモードと描画をリセット
+  drawState.mode = "orbit"; controls.enabled = true;
+  cv.style.pointerEvents = "none"; $("modeBtn").textContent = "✏️ 描き込み";
+  $("drawTools").classList.add("off"); ctx.clearRect(0,0,cv.width,cv.height);
+}
+
 // ---- 3Dビューア ----
 let viewerState = null;
 function initViewer(joints, upAxis, ph){
@@ -296,6 +374,9 @@ function initViewer(joints, upAxis, ph){
   function pause(){ playing=false; playBtn.textContent="▶"; }
   function play(){ playing=true; playBtn.textContent="⏸"; }
   playBtn.onclick = () => playing ? pause() : play();
+
+  // 描き込みオーバーレイを viewer の大きさに合わせて用意
+  setupDrawCanvas(W, H, controls, pause);
 
   function loop(t){
     if(viewerState !== state) return; // 別解析に切り替わったら停止

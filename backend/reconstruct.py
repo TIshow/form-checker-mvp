@@ -1,7 +1,8 @@
-"""GVHMR を Modal のサーバーレスGPUで動かす。
+"""GVHMR を Modal のサーバーレスGPUで動かす（CLI と Web の両方）。
 
-issue #2 のフェーズA/B。Colab で確定した環境レシピをそのまま Modal Image に焼き、
-毎回の環境再構築を無くす。GPUを使うのは3D復元のみ。出力(.npy)を解析層に渡す。
+Colab で確定した環境レシピをそのまま Modal Image に焼き、毎回の環境再構築を無くす。
+GPUを使うのは3D復元のみで、24関節を返す。重心・角度・フィードバックの導出は
+analysis 側（純numpy）の責務。issue #2（Modal化）と issue #3 フェーズA（HTTP化）。
 
 ## 準備（初回のみ）
 
@@ -14,11 +15,18 @@ issue #2 のフェーズA/B。Colab で確定した環境レシピをそのま�
   modal volume put gvhmr-assets \
       ~/Desktop/gvhmr_body_models/SMPLX_NEUTRAL.npz /checkpoints/body_models/smplx/SMPLX_NEUTRAL.npz
 
-## 実行
+## CLI（ローカルで解析）
 
   modal run backend/reconstruct.py --video temp_my_serve.mp4
-  # → gv_joints.npy / gv_com.npy / gv_upaxis.npy がカレントに返る
-  # → python -m analysis で解析
+  # → gv_joints.npy とレンダ動画 render_*.mp4 がカレントに返る
+  # → python -m analysis --joints gv_joints.npy --fps 30 --save output
+
+## Web（ブラウザから。issue #3）
+
+  modal deploy backend/reconstruct.py
+  # POST <workspace>--serve-api.modal.run/submit  {video_b64, fps} → {job_id}
+  # GET  ...                        /result?job_id=...  → {status, result}
+  #   result = 指標・フィードバック・関節列(3Dビューア用)・重ね合わせ動画(base64)
 """
 
 from __future__ import annotations
