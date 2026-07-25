@@ -1,4 +1,14 @@
-# サーブ3D解析ノートブック（検証済み最終版）
+# サーブ3D解析ノートブック（P0の記録・非推奨）
+
+> ⚠️ **これは P0 検証時の Colab 手順の記録です。正規の実行経路ではありません。**
+> 3D復元は Modal に移行済み（[../backend/](../backend/) / [issue 002](../docs/issues/002-modal-gvhmr-backend.md)）。
+> 通常はこちらを使う:
+> ```bash
+> modal run backend/reconstruct.py --video temp_my_serve.mp4
+> python -m analysis --joints gv_joints.npy --com gv_com.npy --upaxis gv_upaxis.npy --fps 30
+> ```
+> 以下は「Colabでどう動かしたか」の歴史的記録として残す。Modal のイメージ定義は
+> このノートで確定したレシピを焼いたものなので、環境の詳細を追う際の参照になる。
 
 `P0_gvhmr_serve_validation.ipynb` — サーブ動画を **GVHMR (world-grounded 3D)** で復元し、
 **物理的に正しい3D重心(COM)** から沈み込み〜打点を定量化する Colab ノート。

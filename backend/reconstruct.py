@@ -103,10 +103,12 @@ def reconstruct(video_bytes: bytes, name: str) -> dict:
     """
     import os
     import subprocess
+    import time
 
     import numpy as np
     import torch
 
+    t_start = time.time()
     os.chdir(GVHMR)
 
     # Volume のチェックポイントを GVHMR の想定パスへ結びつける
@@ -168,8 +170,12 @@ def reconstruct(video_bytes: bytes, name: str) -> dict:
         np.save(buf, arr)
         return buf.getvalue()
 
+    elapsed = time.time() - t_start
+    # T4 は $0.000164/秒（modal.com/pricing）。コンテナ起動分は別途上乗せ。
     print(f"joints {joints.shape} up_axis {up_ax} sign {up_sign:+.0f} "
           f"COM mean {com.mean(0).round(3)}")
+    print(f"[TIMING] GPU関数の実働 {elapsed:.1f}s  "
+          f"≒ ${elapsed * 0.000164:.4f} (T4, 起動分は別)")
     return {
         "gv_joints.npy": to_bytes(joints),
         "gv_com.npy": to_bytes(com),

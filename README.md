@@ -97,31 +97,38 @@
 
 ```
 REDESIGN.md    設計方針・技術選定・ロードマップ
-notebooks/     3D復元パイプライン（Colab / GPU が必要）
+backend/       3D復元（GVHMR）を Modal のサーバーレスGPUで実行
 analysis/      指標算出とフィードバック生成（純numpy / GPU不要）
   serve.py       計測  — 幾何・運動学・指標
   feedback.py    判定  — ルールと閾値
   report.py      表示
 tests/         合成サーブデータによる検証
+notebooks/     P0検証時の Colab 手順（記録・非推奨）
 ```
 
-3D復元は GPU が要るため Colab で実行し、その出力(`.npy`)を `analysis/` が読む、
+3D復元は GPU が要るため Modal 上で実行し、その出力(`.npy`)を `analysis/` が読む、
 という分業になっている。`analysis/` はローカルでも動く。
 
 ```bash
 uv venv && uv pip install -e ".[dev]"
 pytest
+
+# 3D復元（Modal GPU）→ 解析。詳細は backend/README.md
+modal run backend/reconstruct.py --video temp_my_serve.mp4
 python -m analysis --joints gv_joints.npy --com gv_com.npy \
-                   --upaxis gv_upaxis.npy --fps 120
+                   --upaxis gv_upaxis.npy --fps 30
 ```
 
 ## 実行環境について
 
 3Dモデルの推論には **NVIDIA GPU が必要**（Apple Silicon では動かない）。
-現在は Colab の T4 GPU を使用。将来的にはサーバーレスGPU
-（Modal / Replicate 等、秒課金）でのバックエンド運用を想定している。
+**Modal のサーバーレスGPU（T4）**で実行する。`modal run` の1コマンドで、
+環境の再構築なしにクラウドGPUで復元し、結果をローカルへ返す。
 
-セットアップ手順は [notebooks/README.md](notebooks/README.md) を参照。
+- 計算コスト: 約 $0.03〜0.04 / 本（約5円）
+- 待ち時間: 約10分（大half はコールドスタート。非同期利用のため許容）
+
+セットアップ手順は [backend/README.md](backend/README.md) を参照。
 
 ---
 

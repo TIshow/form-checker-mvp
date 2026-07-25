@@ -1,7 +1,8 @@
 # テニスフォーム分析 — 設計方針
 
 **状態: P0（技術検証）完了。P1（パイプライン化）が次。**
-決定済みの事項と、その理由を記録する文書。実装は `analysis/` と `notebooks/` にある。
+決定済みの事項と、その理由を記録する文書。実装は `backend/`（3D復元・Modal）と
+`analysis/`（指標・フィードバック）にある。
 
 ---
 
@@ -55,7 +56,7 @@ YOLO(人物検出) と ViTPose(2D姿勢) を使っており、2Dは3Dの材料�
 
 ```
 動画
- └─▶ ① 3D人体復元 (world-grounded SMPL)      ← notebooks/ (GPU必須)
+ └─▶ ① 3D人体復元 (world-grounded SMPL)      ← backend/ Modal (GPU必須)
      └─▶ ② バイオメカ量の算出 (重心・関節角)    ← analysis/serve.py
          └─▶ ③ 動作の意味づけ (フェーズ・連鎖・打点)
              └─▶ ④ フィードバック生成          ← analysis/feedback.py

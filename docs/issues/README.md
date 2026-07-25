@@ -26,4 +26,4 @@ docは消さない。完了後の価値は手順ではなく「なぜそうし�
 | # | タイトル | GitHub | Status |
 |---|---|---|---|
 | [001](001-contact-and-phase-detection.md) | フェーズ検出を「自動検出→人が微調整」にし、打点を打球音で精密化 | [#1](https://github.com/TIshow/form-checker-mvp/issues/1) | Open |
-| [002](002-modal-gvhmr-backend.md) | GVHMR を Modal のサーバーレスGPUで動かす | [#2](https://github.com/TIshow/form-checker-mvp/issues/2) | Open |
+| [002](002-modal-gvhmr-backend.md) | GVHMR を Modal のサーバーレスGPUで動かす | [#2](https://github.com/TIshow/form-checker-mvp/issues/2) | ✅ Done |
