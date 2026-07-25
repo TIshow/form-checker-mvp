@@ -5,7 +5,8 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 
-# 動画と解析の中間生成物
+# 動画と解析の中間生成物・出力
 *.mp4
 *.mov
 *.npy
+output/
