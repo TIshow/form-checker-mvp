@@ -28,3 +28,4 @@ docは消さない。完了後の価値は手順ではなく「なぜそうし�
 | [001](001-contact-and-phase-detection.md) | フェーズ検出を「自動検出→人が微調整」にし、打点を打球音で精密化 | [#1](https://github.com/TIshow/form-checker-mvp/issues/1) | Open |
 | [002](002-modal-gvhmr-backend.md) | GVHMR を Modal のサーバーレスGPUで動かす | [#2](https://github.com/TIshow/form-checker-mvp/issues/2) | ✅ Done |
 | [003](003-web-app.md) | Web アプリ化（アップロード → フィードバック + 3Dビューア） | [#3](https://github.com/TIshow/form-checker-mvp/issues/3) | Open |
+| [004](004-3d-annotations.md) | 3D空間に貼り付く注釈（回しても追従） | [#4](https://github.com/TIshow/form-checker-mvp/issues/4) | Open |
