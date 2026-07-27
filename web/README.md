@@ -29,12 +29,16 @@ python -c "import json,numpy as np,analysis; \
   open('web/result_sample.json','w'), ensure_ascii=False)"
 
 # 配信して開く（file:// では fetch が制限されるため）
-python -m http.server 8123 --directory web
+python web/devserver.py
 # → http://127.0.0.1:8123/index.html
 #   「(サンプル結果を読み込む)」で 3Dビューア等をオフライン確認できる
 ```
 
 `result_sample.json` は生成物（自分のサーブ由来）なので gitignore 済み。
+
+`devserver.py` は `Cache-Control: no-store` を返す。標準の `http.server` だと
+ブラウザが古い `index.html` / `avatar.js` を掴んだままになり、
+「直したのに変わらない」という誤解を生むため。
 
 ## アバター（`avatar.js`）
 
