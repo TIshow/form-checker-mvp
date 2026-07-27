@@ -29,4 +29,5 @@ docは消さない。完了後の価値は手順ではなく「なぜそうし�
 | [002](002-modal-gvhmr-backend.md) | GVHMR を Modal のサーバーレスGPUで動かす | [#2](https://github.com/TIshow/form-checker-mvp/issues/2) | ✅ Done |
 | [003](003-web-app.md) | Web アプリ化（アップロード → フィードバック + 3Dビューア） | [#3](https://github.com/TIshow/form-checker-mvp/issues/3) | Open |
 | [004](004-3d-annotations.md) | 3D空間に貼り付く注釈（回しても追従） | [#4](https://github.com/TIshow/form-checker-mvp/issues/4) | Open |
-| [005](005-avatar-retargeting.md) | 自分のサーブをアバター（VRM）で再生する | [#5](https://github.com/TIshow/form-checker-mvp/issues/5) | Open |
+| [005](005-avatar-retargeting.md) | 自分のサーブをアバター（VRM）で再生する | [#5](https://github.com/TIshow/form-checker-mvp/issues/5) | ✅ Done |
+| [006](006-racket-tracking.md) | ラケットを追跡する | [#6](https://github.com/TIshow/form-checker-mvp/issues/6) | Open |
