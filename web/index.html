@@ -248,7 +248,7 @@ function render(result, fps){
   }
 
   initViewer(result.joints, result.up_axis, ph, result.pose,
-             m.racket_side === 'L' ? 'left' : 'right');
+             m.racket_side === 'L' ? 'left' : 'right', m.fps || fps);
 }
 
 // ---- 描き込み（2Dオーバーレイ）----
@@ -315,7 +315,9 @@ function setupDrawCanvas(W, H, controls, pauseFn){
 
 // ---- 3Dビューア ----
 let viewerState = null;
-function initViewer(joints, upAxis, ph, pose, racketSide){
+// fps は必ず引数で受け取る。受け取らないと、モジュール内の裸の `fps` が
+// 同名の要素 id="fps" (window.fps) に解決され、1000/fps が NaN になる。
+function initViewer(joints, upAxis, ph, pose, racketSide, fps){
   const host = $("viewer"); host.innerHTML = "";
   // 非表示中などで幅が取れないことがある。0のまま初期化すると何も描画されない。
   const size = () => [host.clientWidth || host.parentElement?.clientWidth || 800,
