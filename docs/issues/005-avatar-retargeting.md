@@ -84,10 +84,13 @@ VRMモデルには個別の利用規約（改変・二次配布・商用の可�
 
 ## 作業計画
 
-### フェーズ A: 回転をバックエンドから返す（小さい・確実）
-- [ ] `_gvhmr_joints` が `smpl_params_global`（global_orient / body_pose / transl / betas）も返す
-- [ ] CLI: `gv_pose.npz` 等として保存
-- [ ] Web: 結果JSONに含める（サイズは関節列と同程度）
+### フェーズ A: 回転をバックエンドから返す ✅ 完了 2026-07-26
+- [x] `_gvhmr_joints` が `smpl_params_global`（global_orient / body_pose / transl / betas）も返す
+- [x] CLI: `gv_pose.npz` として保存
+- [x] Web: 結果JSONの `pose` に含める
+- 実機確認: body_pose (208,63) → reshape (208,21,3) で対応表の前提どおり。
+  global_orient (208,3) / transl (208,3) / betas (208,10)。JSON化 345KB（関節列315KBと同等）
+- 回帰確認: 既存の解析は不変（frame 87/103、肘131°、同フィードバック）。テスト24件通過
 
 ### フェーズ B: 最小のVRM再生
 - [ ] `@pixiv/three-vrm` を導入し、VRMを読み込んでT-poseで表示

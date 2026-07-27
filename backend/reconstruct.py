@@ -18,7 +18,8 @@ analysis 側（純numpy）の責務。issue #2（Modal化）と issue #3 フェ�
 ## CLI（ローカルで解析）
 
   modal run backend/reconstruct.py --video temp_my_serve.mp4
-  # → gv_joints.npy とレンダ動画 render_*.mp4 がカレントに返る
+  # → gv_joints.npy / gv_pose.npz / レンダ動画 render_*.mp4 がカレントに返る
+  #   gv_pose.npz = 関節の回転（アバターへのリターゲット用。issue #5）
   # → python -m analysis --joints gv_joints.npy --fps 30 --save output
 
 ## Web（ブラウザから。issue #3）
@@ -157,6 +158,12 @@ def _gvhmr_joints(video_bytes: bytes, name: str):
     jreg = torch.load("hmr4d/utils/body_model/smpl_neutral_J_regressor.pt").to(dev)
     joints = torch.einsum("jv,fvc->fjc", jreg, verts).cpu().numpy()  # (F,24,3) m
 
+    # 関節の「回転」も返す（アバターへのリターゲット用。issue #5）。
+    # 位置は体格差で破綻するが、回転なら体型の違うキャラにも移せる。
+    #   global_orient (F,3) 体全体の向き / body_pose (F,63)=21関節×3 / transl (F,3)
+    pose = {k: (v.detach().cpu().numpy() if torch.is_tensor(v) else np.asarray(v))
+            for k, v in g.items()}
+
     # GVHMR がレンダリングした3D動画（入力動画のコピーは除く）
     renders = {}
     for mp4 in sorted(glob.glob(f"outputs/demo/{stem}/*.mp4")):
@@ -168,22 +175,26 @@ def _gvhmr_joints(video_bytes: bytes, name: str):
 
     elapsed = time.time() - t_start
     # T4 は $0.000164/秒（modal.com/pricing）。コンテナ起動分は別途上乗せ。
-    print(f"joints {joints.shape}  [TIMING] {elapsed:.1f}s "
-          f"≒ ${elapsed * 0.000164:.4f} (T4, 起動分は別)")
-    return joints, renders
+    print(f"joints {joints.shape}  pose {{{', '.join(f'{k}:{tuple(v.shape)}' for k, v in pose.items())}}}")
+    print(f"[TIMING] {elapsed:.1f}s ≒ ${elapsed * 0.000164:.4f} (T4, 起動分は別)")
+    return joints, pose, renders
 
 
 @app.function(image=image, gpu="T4", volumes={ASSETS: vol}, timeout=900)
 def reconstruct(video_bytes: bytes, name: str) -> dict:
-    """CLI用。関節を .npy にし、レンダ動画と共に返す（`modal run` → ローカル保存）。"""
+    """CLI用。関節・回転・レンダ動画を返す（`modal run` → ローカル保存）。"""
     import io
 
     import numpy as np
 
-    joints, renders = _gvhmr_joints(video_bytes, name)
-    buf = io.BytesIO()
-    np.save(buf, joints)
-    return {"gv_joints.npy": buf.getvalue(), **renders}
+    joints, pose, renders = _gvhmr_joints(video_bytes, name)
+
+    jbuf = io.BytesIO()
+    np.save(jbuf, joints)
+    pbuf = io.BytesIO()
+    np.savez(pbuf, **pose)  # アバター用の回転（issue #5）
+    return {"gv_joints.npy": jbuf.getvalue(),
+            "gv_pose.npz": pbuf.getvalue(), **renders}
 
 
 @app.function(image=image, gpu="T4", volumes={ASSETS: vol}, timeout=900)
@@ -192,13 +203,17 @@ def run_job(video_bytes: bytes, name: str, fps: float) -> dict:
 
     「現実+3Dメッシュの重ね合わせ」動画(incam)も base64 で同梱する
     （フォームの当てはまりを目で確認できるため）。
+    アバター用の回転(pose)も載せる（issue #5）。指標の導出には使わない。
     """
     import base64
 
     import analysis
 
-    joints, renders = _gvhmr_joints(video_bytes, name)
+    joints, pose, renders = _gvhmr_joints(video_bytes, name)
     res = analysis.analyze_json(joints, fps)
+
+    # 回転はアバター表示専用。analysis（指標）は関節位置のみで完結させる。
+    res["pose"] = {k: v.round(5).tolist() for k, v in pose.items()}
 
     # 横並び(horiz) = 左:元動画+3Dメッシュ重ね / 右:別角度の3D。両方見える版を優先。
     def pick(rs):
