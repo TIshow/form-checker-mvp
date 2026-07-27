@@ -110,6 +110,7 @@
         <button id="play" style="padding:6px 14px">⏸</button>
         <input type="range" id="frame" min="0" value="0" />
         <span id="frameLabel">0</span>
+        <button id="avatarBtn" style="padding:6px 12px; background:#374151" disabled>🧍 アバター</button>
       </div>
       <div class="vctl" id="drawTools">
         <button id="modeBtn" style="padding:6px 12px">✏️ 描き込み</button>
@@ -129,12 +130,14 @@
 <script type="importmap">
 { "imports": {
   "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+  "@pixiv/three-vrm": "https://unpkg.com/@pixiv/three-vrm@3.5.5/lib/three-vrm.module.js"
 }}
 </script>
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { createAvatar } from "./avatar.js";
 
 const API = "https://tishow--serve-api.modal.run";
 // SMPL 24関節の親子（骨）
@@ -244,7 +247,8 @@ function render(result, fps){
     card.classList.add("hidden");
   }
 
-  initViewer(result.joints, result.up_axis, ph);
+  initViewer(result.joints, result.up_axis, ph, result.pose,
+             m.racket_side === 'L' ? 'left' : 'right');
 }
 
 // ---- 描き込み（2Dオーバーレイ）----
@@ -311,9 +315,12 @@ function setupDrawCanvas(W, H, controls, pauseFn){
 
 // ---- 3Dビューア ----
 let viewerState = null;
-function initViewer(joints, upAxis, ph){
+function initViewer(joints, upAxis, ph, pose, racketSide){
   const host = $("viewer"); host.innerHTML = "";
-  const W = host.clientWidth, H = host.clientHeight;
+  // 非表示中などで幅が取れないことがある。0のまま初期化すると何も描画されない。
+  const size = () => [host.clientWidth || host.parentElement?.clientWidth || 800,
+                      host.clientHeight || 420];
+  let [W, H] = size();
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(45, W/H, 0.01, 100);
   const renderer = new THREE.WebGLRenderer({antialias:true});
@@ -334,21 +341,24 @@ function initViewer(joints, upAxis, ph){
   for(const fr of disp) for(const p of fr){ p[0]-=c[0]; p[1]-=c[1]; p[2]-=c[2]; }
 
   scene.add(new THREE.HemisphereLight(0xffffff,0x444444,1.2));
+  const key = new THREE.DirectionalLight(0xffffff, 1.1);
+  key.position.set(2,3,2); scene.add(key);   // アバターの陰影用
   const grid = new THREE.GridHelper(4,8,0x333a44,0x222831);
   grid.position.y = Math.min(...disp.flat().map(p=>p[1]));
   scene.add(grid);
 
   // 骨と関節
+  const skel = new THREE.Group(); scene.add(skel);
   const boneGeom = new THREE.BufferGeometry();
   const bonePos = new Float32Array(BONES.length*2*3);
   boneGeom.setAttribute("position", new THREE.BufferAttribute(bonePos,3));
   const boneMat = new THREE.LineBasicMaterial({color:0x9db2cc});
-  scene.add(new THREE.LineSegments(boneGeom, boneMat));
+  skel.add(new THREE.LineSegments(boneGeom, boneMat));
   const jointMat = new THREE.MeshBasicMaterial({color:0x2563eb});
   const spheres = [];
   for(let j=0;j<J;j++){
     const s = new THREE.Mesh(new THREE.SphereGeometry(0.022,10,10), jointMat.clone());
-    scene.add(s); spheres.push(s);
+    skel.add(s); spheres.push(s);
   }
   camera.position.set(2.2,1.2,2.2); controls.target.set(0,0.2,0);
 
@@ -364,8 +374,13 @@ function initViewer(joints, upAxis, ph){
     // 打点/沈み込みで色を変える
     const col = i===ph.contact ? 0xef4444 : i===ph.loading ? 0xf59e0b : 0x2563eb;
     for(const s of spheres) s.material.color.setHex(col);
+    if(avatar) avatar.applyFrame(i, hipsAt(i));
     $("frame").value = i; $("frameLabel").textContent = i;
   }
+
+  // アバターの腰位置。骨格と同じ表示座標に置いて重なるようにする。
+  const hipsVec = new THREE.Vector3();
+  const hipsAt = (i) => hipsVec.set(disp[i][0][0], disp[i][0][1], disp[i][0][2]);
 
   const slider = $("frame"); slider.max = F-1; slider.value = 0;
   slider.oninput = () => { pause(); setFrame(parseInt(slider.value)); };
@@ -378,10 +393,55 @@ function initViewer(joints, upAxis, ph){
   // 描き込みオーバーレイを viewer の大きさに合わせて用意
   setupDrawCanvas(W, H, controls, pause);
 
+  // 表示サイズが後から確定/変化しても追従する（描き込みは消える）
+  new ResizeObserver(() => {
+    const [w, h] = size();
+    if (w === W && h === H) return;
+    [W, H] = [w, h];
+    camera.aspect = w / h; camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+    setupDrawCanvas(w, h, controls, pause);
+  }).observe(host);
+
+  // ---- アバター（issue #5）。回転が来ているときだけ読み込む ----
+  let avatar = null, showAvatar = false;
+  const avBtn = $("avatarBtn");
+  if(pose && pose.body_pose){
+    // 回転は SMPL のワールド座標系。表示座標への軸入れ替えが恒等でないと
+    // 骨格とアバターの向きがずれる（up軸が +Y のとき恒等）。
+    if(!(upAx === 1 && upSign === 1)) {
+      console.warn("up軸が+Yではないため、アバターの向きが骨格とずれる可能性があります", upAxis);
+    }
+    avBtn.textContent = "🧍 読み込み中…";
+    createAvatar("avatar/avatar.vrm", joints, pose).then(a => {
+      if(viewerState !== state){ return; }  // 別解析に切り替わっていたら破棄
+      avatar = a; scene.add(a.root); a.setVisible(false);
+      a.attachRacket(racketSide);
+      console.log("[avatar] レストポーズ補正:", a.report);
+      avBtn.disabled = false; avBtn.textContent = "🧍 アバター";
+      setFrame(cur);
+    }).catch(e => {
+      console.error("[avatar] 読み込み失敗", e);
+      avBtn.textContent = "🧍 なし"; avBtn.title = String(e);
+    });
+  } else {
+    avBtn.textContent = "🧍 なし"; avBtn.title = "この結果には回転(pose)が含まれていません";
+  }
+  avBtn.onclick = () => {
+    if(!avatar) return;
+    showAvatar = !showAvatar;
+    avatar.setVisible(showAvatar); skel.visible = !showAvatar;
+    avBtn.textContent = showAvatar ? "🦴 骨格" : "🧍 アバター";
+    avBtn.style.background = showAvatar ? "var(--accent)" : "#374151";
+  };
+
+  let prevT = 0;
   function loop(t){
     if(viewerState !== state) return; // 別解析に切り替わったら停止
     controls.update();
     if(playing && t-last > (1000/fps)){ cur=(cur+1)%F; setFrame(cur); last=t; }
+    if(avatar) avatar.update(Math.min((t-prevT)/1000, 0.1));
+    prevT = t;
     renderer.render(scene,camera);
     requestAnimationFrame(loop);
   }
