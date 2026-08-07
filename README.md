@@ -103,6 +103,7 @@ analysis/      指標算出とフィードバック生成（純numpy / GPU不要
   feedback.py    判定  — ルールと閾値
   report.py      表示
 tests/         合成サーブデータによる検証
+tools/         補助スクリプト（videoinfo.py = 動画の実fps確認）
 notebooks/     P0検証時の Colab 手順（記録・非推奨）
 ```
 
@@ -113,6 +114,9 @@ notebooks/     P0検証時の Colab 手順（記録・非推奨）
 ```bash
 uv venv && uv pip install -e ".[dev]"
 pytest
+
+# 動画の実fpsを確認（時間の指標はすべてこの値に依存する）
+python tools/videoinfo.py temp_my_serve.mp4
 
 # 3D復元（Modal GPU）→ 解析。詳細は backend/README.md
 modal run backend/reconstruct.py --video temp_my_serve.mp4
