@@ -40,6 +40,25 @@ python web/devserver.py
 ブラウザが古い `index.html` / `avatar.js` を掴んだままになり、
 「直したのに変わらない」という誤解を生むため。
 
+## `compare.html` — 同じ体で2つの動きを並べる（issue #7）
+
+2つの動きを**同じアバター**に流し込む。体が同一なので、見えている差は
+すべて技術の差になる（体格差という言い訳が消える）。
+
+```bash
+python tools/make_compare.py \
+    --mine output          --mine-fps 60 --mine-label "あなた" \
+    --ref  output_zverev   --ref-fps  30 --ref-label  "お手本" \
+    --out  web/data
+python web/devserver.py   # → http://127.0.0.1:8123/compare.html
+```
+
+- **並べる / 重ねる** を切替（重ねるとズレが直接見える）
+- スライダーは**動作の局面**で揃う。沈み込みを 0、打点を 1 として各クリップの
+  自分のフレームに写すので、**撮影fpsやスイングの速さが違っても同じ瞬間が並ぶ**
+- 復元が壊れている素材は警告を出す（接地していない・フェーズが検出できない）。
+  素材の問題を解析の結果と取り違えないため
+
 ## アバター（`avatar.js`）
 
 SMPL の**回転**を VRM に移す。位置ではなく回転を使うのは、体格が違っても成立するため。
