@@ -12,5 +12,6 @@ __pycache__/
 output/
 web/result_sample.json
 web/avatar/
-output_zverev/
+output_zverev*/
+*.log
 web/data/

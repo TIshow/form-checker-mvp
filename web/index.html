@@ -145,6 +145,7 @@ const API = "https://tishow--serve-api.modal.run";
 const BONES = [[1,0],[2,0],[3,0],[4,1],[5,2],[6,3],[7,4],[8,5],[9,6],[10,7],
   [11,8],[12,9],[13,9],[14,9],[15,12],[16,13],[17,14],[18,16],[19,17],
   [20,18],[21,19],[22,20],[23,21]];
+const FOOT_IDS = [7, 8, 10, 11];   // 左右の足首・つま先
 
 const $ = (id) => document.getElementById(id);
 const fileEl = $("file"), goEl = $("go");
@@ -348,17 +349,21 @@ function initViewer(joints, upAxis, ph, pose, racketSide, fps){
   const F = joints.length, J = joints[0].length;
   const disp = joints.map(fr => fr.map(p =>
     [ p[horiz[0]], p[upAx]*upSign, p[horiz[1]] ]));
-  // 中心化（全フレーム平均）
-  const c=[0,0,0]; let n=0;
-  for(const fr of disp) for(const p of fr){ c[0]+=p[0]; c[1]+=p[1]; c[2]+=p[2]; n++; }
+  // 水平は全フレーム平均で中心化。縦は「足元を床(0)に」揃える。
+  // 縦も平均で中心化すると体が床から浮いて見え、さらに床グリッドを
+  // 「クリップ中で最も低かった点」に置くと、途中で一度でも沈んだ瞬間や
+  // 復元のドリフトが床になってしまう。基準は最低値ではなく**中央値**を使う。
+  const c=[0,0]; let n=0;
+  for(const fr of disp) for(const p of fr){ c[0]+=p[0]; c[1]+=p[2]; n++; }
   c.forEach((_,i)=>c[i]/=n);
-  for(const fr of disp) for(const p of fr){ p[0]-=c[0]; p[1]-=c[1]; p[2]-=c[2]; }
+  const lows = disp.map(fr => Math.min(...FOOT_IDS.map(i=>fr[i][1]))).sort((a,b)=>a-b);
+  const ground = lows[Math.floor(lows.length/2)];
+  for(const fr of disp) for(const p of fr){ p[0]-=c[0]; p[1]-=ground; p[2]-=c[1]; }
 
   scene.add(new THREE.HemisphereLight(0xffffff,0x444444,1.2));
   const key = new THREE.DirectionalLight(0xffffff, 1.1);
   key.position.set(2,3,2); scene.add(key);   // アバターの陰影用
-  const grid = new THREE.GridHelper(4,8,0x333a44,0x222831);
-  grid.position.y = Math.min(...disp.flat().map(p=>p[1]));
+  const grid = new THREE.GridHelper(4,8,0x333a44,0x222831);   // 床は 0 に固定
   scene.add(grid);
 
   // 骨と関節
@@ -374,7 +379,8 @@ function initViewer(joints, upAxis, ph, pose, racketSide, fps){
     const s = new THREE.Mesh(new THREE.SphereGeometry(0.022,10,10), jointMat.clone());
     skel.add(s); spheres.push(s);
   }
-  camera.position.set(2.2,1.2,2.2); controls.target.set(0,0.2,0);
+  // 足元が 0 になったので、注視点は体の中ほど（腰の高さ）に置く
+  camera.position.set(2.4,1.3,2.4); controls.target.set(0,0.9,0);
 
   function setFrame(i){
     const fr = disp[i];
