@@ -40,10 +40,14 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from analysis.serve import compute_com, detect_up_axis  # noqa: E402
+from analysis.serve import (  # noqa: E402
+    L_ANKLE, L_FOOT, R_ANKLE, R_FOOT, compute_com, detect_up_axis,
+)
 
 G = 9.81            # m/s²
 MAX_RMS_M = 0.005   # 放物線からのずれがこれ以下なら自由落下とみなす（5mm）
+MIN_RISE_M = 0.05   # 重心がこれ以上持ち上がっていなければ跳んでいない
+MIN_CLEARANCE_M = 0.03  # 足が立位からこれ以上浮いていなければ接地している
 COMMON_FPS = [24, 25, 30, 50, 60, 120, 240]
 
 
@@ -57,10 +61,42 @@ def _fit(com_h: np.ndarray, lo: int, hi: int) -> tuple[float, float] | None:
     return -2.0 * c2, float(np.sqrt((resid ** 2).mean()))
 
 
+def _has_jump(joints: np.ndarray, up_ax: int, up_sign: float,
+              com_h: np.ndarray) -> str | None:
+    """跳んでいなければ理由を返す。
+
+    跳んでいない動画に放物線を当てはめると、ただのゆらぎにも当てはまってしまい
+    もっともらしい数字が出る。実際、サーブが写っていない参照動画で 173fps という
+    無意味な推定が出た。先に「本当に跳んだか」を確かめる。
+    """
+    feet = joints[:, [L_ANKLE, R_ANKLE, L_FOOT, R_FOOT]][..., up_ax] * up_sign
+    lowest = feet.min(axis=1)
+    standing = float(np.median(lowest))
+    clearance = float(lowest.max() - standing)
+    rise = float(com_h.max() - com_h.min())
+
+    # GVHMR は地面を y≈0 に置く。立位の足がそこから大きく離れているなら、
+    # 復元が接地していない＝カメラ運動や追跡失敗を疑う。実例: サーブが
+    # 写っていない参照動画では立位の足が 0.33m 浮き、推定値も無意味だった。
+    if standing > 0.15:
+        return (f"復元が地面に接地していません（立位の足が {standing*100:.0f} cm 浮いている）。"
+                "追跡失敗やカメラ運動の可能性があり、この動画では推定できません")
+    if clearance < MIN_CLEARANCE_M:
+        return (f"足が地面から離れていません（最大 {clearance*100:.1f} cm）。"
+                "跳躍が写っていない可能性があります")
+    if rise < MIN_RISE_M:
+        return f"重心がほとんど上下していません（{rise*100:.1f} cm）"
+    return None
+
+
 def estimate(joints: np.ndarray, max_rms: float = MAX_RMS_M) -> dict:
     up_ax, up_sign = detect_up_axis(joints)
     com_h = compute_com(joints)[:, up_ax] * up_sign
     peak = int(np.argmax(com_h))
+
+    why = _has_jump(joints, up_ax, up_sign, com_h)
+    if why:
+        return {"error": f"跳躍が見つかりません: {why}"}
 
     scan, chosen = [], None
     for half in range(4, 31):
