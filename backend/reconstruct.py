@@ -22,6 +22,30 @@ analysis 側（純numpy）の責務。issue #2（Modal化）と issue #3 フェ�
   #   gv_pose.npz = 関節の回転（アバターへのリターゲット用。issue #5）
   # → python -m analysis --joints gv_joints.npy --fps 60 --save output
 
+## 投げる前に: 動作の部分だけ切り出す（--start / --end）
+
+長いクリップに立っているだけの区間が続くと、そこで復元がドリフトし、
+**サーブ部分の結果まで巻き添えで壊れる**。実例（10.9秒のうちサーブは末尾3秒）:
+
+                        全長を投げた   サーブだけ切り出した
+  利き手の判定           L（誤り）      R（正しい）
+  沈み込み→打点          1 フレーム     51 フレーム
+  立位の足の高さ         32.5 cm 宙に   5.8 cm
+
+  modal run backend/reconstruct.py --video X.mp4 --start 4.8 --end 10.3
+
+切る範囲は「動き出しの少し前 〜 フォロースルーまで」。切りすぎると今度は
+助走が入らない（開始時点ですでにトロフィー姿勢、ということが起きる）。
+カット切り替わりをまたがないこと。`tools/camera_motion.py` が切り替わりらしき
+時刻を出すので目安になる。
+
+## 投げる前に: カメラが動いていないか（issue #8）
+
+demo.py は `-s`（静止カメラ）で呼んでいる。カメラが動く素材では、その動きが
+人物の動きとして世界座標に足し込まれ、跳躍や水平移動が信用できなくなる。
+
+  python tools/camera_motion.py X.mp4 --start 4.8 --end 10.3
+
 ## Web（ブラウザから。issue #3）
 
   modal deploy backend/reconstruct.py
