@@ -3,31 +3,38 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>サーブ比較 — 同じ体で並べる</title>
+<title>サーブ比較 — 二画面</title>
 <style>
   :root { --bg:#0f1216; --card:#1a1f27; --line:#2a323d; --fg:#e7ecf2; --muted:#94a3b8;
-          --accent:#2563eb; --warn:#f59e0b; --mine:#60a5fa; --ref:#f472b6; }
+          --accent:#2563eb; --mine:#60a5fa; --ref:#f472b6; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg);
          font-family: -apple-system, "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
          line-height:1.7; }
-  header { padding:18px 24px; border-bottom:1px solid var(--line); }
+  header { padding:16px 24px; border-bottom:1px solid var(--line); }
   header h1 { margin:0; font-size:18px; font-weight:600; }
-  header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
   header a { color:var(--muted); font-size:12px; }
-  main { max-width:1100px; margin:0 auto; padding:20px 24px 40px; }
+  main { max-width:1200px; margin:0 auto; padding:18px 24px 40px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
           padding:16px 18px; margin-bottom:16px; }
   button { background:#374151; color:#fff; border:0; border-radius:8px;
            padding:7px 14px; font-size:13px; font-weight:600; cursor:pointer; }
   button.on { background:var(--accent); }
+  button:disabled { opacity:.45; cursor:default; }
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
   .grow { flex:1; }
-  #view { width:100%; height:480px; background:#0b0e12; border-radius:8px; }
+
+  .panes { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:860px){ .panes { grid-template-columns:1fr; } }
+  .pane h4 { margin:0 0 6px; font-size:14px; font-weight:600; }
+  .pane .view { width:100%; height:420px; background:#0b0e12; border-radius:8px; }
+  .pane .meta { color:var(--muted); font-size:12px; margin-top:6px;
+                font-variant-numeric:tabular-nums; }
+  .tag { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:7px; }
+
   input[type=range]{ width:100%; }
-  .legend { display:flex; gap:18px; font-size:13px; margin-top:4px; }
-  .dot { display:inline-block; width:10px; height:10px; border-radius:50%;
-         margin-right:6px; vertical-align:middle; }
+  .phase { display:flex; justify-content:space-between; color:var(--muted);
+           font-size:11px; margin-top:2px; }
   .warn { background:#2a1f14; border:1px solid #7c5a1e; color:#fcd9a0;
           border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:14px; }
   .note { color:var(--muted); font-size:12px; margin-top:8px; }
@@ -36,15 +43,12 @@
   th:first-child, td:first-child { text-align:left; color:var(--muted); }
   th { color:var(--muted); font-weight:500; font-size:12px; }
   td.m { color:var(--mine); } td.r { color:var(--ref); }
-  .phase { display:flex; justify-content:space-between; color:var(--muted);
-           font-size:11px; margin-top:2px; }
   .status { color:var(--muted); font-size:14px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>⚖️ サーブ比較 — 同じ体で並べる</h1>
-  <p>2つの動きを同じアバターに流し込むので、体格差が消え、残る差は技術の差になります。</p>
+  <h1>⚖️ サーブ比較 — 二画面</h1>
   <a href="index.html">← 単体の解析へ</a>
 </header>
 
@@ -53,37 +57,43 @@
 
   <div class="card">
     <div class="row">
-      <button id="modeBtn" class="on">🫱🫲 並べる</button>
       <button id="playBtn">⏸</button>
+      <button id="avatarBtn" disabled>🧍 アバター</button>
+      <button id="syncBtn" class="on">🔗 視点を同期</button>
       <div class="grow"></div>
-      <div class="legend">
-        <span><span class="dot" style="background:var(--mine)"></span><b id="lblMine">あなた</b></span>
-        <span><span class="dot" style="background:var(--ref)"></span><b id="lblRef">お手本</b></span>
+      <span class="note" id="posNote"></span>
+    </div>
+
+    <div class="panes" style="margin-top:12px">
+      <div class="pane">
+        <h4><span class="tag" style="background:var(--mine)"></span><span id="lblA">—</span></h4>
+        <div class="view" id="viewA"></div>
+        <div class="meta" id="metaA"></div>
+      </div>
+      <div class="pane">
+        <h4><span class="tag" style="background:var(--ref)"></span><span id="lblB">—</span></h4>
+        <div class="view" id="viewB"></div>
+        <div class="meta" id="metaB"></div>
       </div>
     </div>
 
-    <div id="view" style="margin-top:12px"></div>
-
-    <div style="margin-top:10px">
+    <div style="margin-top:12px">
       <input type="range" id="scrub" min="-150" max="200" value="-100" />
       <div class="phase">
         <span>← 構え</span><span>沈み込み</span><span>打点</span><span>フォロースルー →</span>
       </div>
     </div>
-    <div class="note" id="posNote"></div>
     <div class="note">
-      スライダーは<b>動作の局面</b>で揃えてあります。スイングの速さや fps が違っても、
-      同じ瞬間どうしが並びます。ドラッグで回転・スクロールでズーム。
+      スライダーは<b>動作の局面</b>で揃えてあります（沈み込み=0、打点=1）。
+      撮影fpsやスイングの速さが違っても同じ瞬間どうしが並びます。
+      オレンジ=沈み込み、赤=打点。ドラッグで回転・スクロールでズーム。
     </div>
   </div>
 
   <div class="card">
     <h3 style="margin:0 0 10px; font-size:15px">数値の比較</h3>
     <table id="metrics"></table>
-    <div class="note">
-      同じ体に揃えているので、体格の違いによる差はありません。ただし
-      <b>お手本と同じ角度が出せるか</b>は可動域しだいで、到達できる保証はありません。
-    </div>
+    <div class="note" id="scaleNote"></div>
   </div>
 
   <div class="card" id="loading">
@@ -105,7 +115,12 @@ import { createAvatar } from "./avatar.js";
 
 const $ = (id) => document.getElementById(id);
 const AVATAR = "avatar/avatar.vrm";
-const SEP = 0.9;               // 「並べる」ときの左右の間隔[m]
+
+/** SMPL 24関節の骨（子, 親） */
+const BONES = [[1,0],[2,0],[3,0],[4,1],[5,2],[6,3],[7,4],[8,5],[9,6],[10,7],
+  [11,8],[12,9],[13,9],[14,9],[15,12],[16,13],[17,14],[18,16],[19,17],
+  [20,18],[21,19],[22,20],[23,21]];
+const FOOT_IDS = [7, 8, 10, 11];
 
 /**
  * 動作の局面で時間を揃える。
@@ -116,14 +131,112 @@ function frameAt(clip, t) {
   const { loading, contact } = clip.metrics.phases;
   const N = clip.joints.length;
   const span = contact - loading;
-  let f;
-  if (span >= 3) {
-    f = Math.round(loading + t * span);
-  } else {
-    // フェーズが検出できていないクリップは、全体を比例配分して並べる
-    f = Math.round(((t + 1.5) / 3.5) * (N - 1));
-  }
+  const f = span >= 3
+    ? Math.round(loading + t * span)
+    : Math.round(((t + 1.5) / 3.5) * (N - 1));   // 局面が取れないクリップは比例配分
   return Math.max(0, Math.min(N - 1, f));
+}
+
+/** 表示座標へ直す: up軸を +Y に、足元を床(0)に、水平位置を原点に寄せる */
+function toDisplay(clip) {
+  const [ax, sg] = clip.up_axis;
+  const horiz = [0, 1, 2].filter(k => k !== ax);
+  const disp = clip.joints.map(fr =>
+    fr.map(p => [p[horiz[0]], p[ax] * sg, p[horiz[1]]]));
+
+  let ground = Infinity, sx = 0, sz = 0, n = 0;
+  for (const fr of disp) {
+    for (const i of FOOT_IDS) ground = Math.min(ground, fr[i][1]);
+    sx += fr[0][0]; sz += fr[0][2]; n++;
+  }
+  const cx = sx / n, cz = sz / n;
+  for (const fr of disp) for (const p of fr) {
+    p[0] -= cx; p[1] -= ground; p[2] -= cz;
+  }
+  return disp;
+}
+
+/** 1画面ぶん。骨格を主役に、アバターは任意で重ねる。 */
+function makePane(hostId, clip, color) {
+  const host = $(hostId);
+  const size = () => [host.clientWidth || 520, host.clientHeight || 420];
+  let [W, H] = size();
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(42, W / H, 0.01, 100);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(W, H); renderer.setPixelRatio(devicePixelRatio);
+  host.appendChild(renderer.domElement);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  camera.position.set(2.4, 1.2, 2.4); controls.target.set(0, 0.9, 0);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+  const key = new THREE.DirectionalLight(0xffffff, 1.0);
+  key.position.set(2, 3, 2); scene.add(key);
+  scene.add(new THREE.GridHelper(4, 8, 0x333a44, 0x222831));
+
+  const disp = toDisplay(clip);
+  const J = disp[0].length;
+
+  // ---- 骨格 ----
+  const skel = new THREE.Group(); scene.add(skel);
+  const boneGeom = new THREE.BufferGeometry();
+  const bonePos = new Float32Array(BONES.length * 2 * 3);
+  boneGeom.setAttribute("position", new THREE.BufferAttribute(bonePos, 3));
+  skel.add(new THREE.LineSegments(boneGeom,
+    new THREE.LineBasicMaterial({ color: 0x9db2cc })));
+  const spheres = [];
+  for (let j = 0; j < J; j++) {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 10),
+      new THREE.MeshBasicMaterial({ color }));
+    skel.add(s); spheres.push(s);
+  }
+
+  let avatar = null, showAvatar = false;
+
+  function setFrame(f) {
+    const fr = disp[f];
+    for (let j = 0; j < J; j++) spheres[j].position.set(...fr[j]);
+    let k = 0;
+    for (const [a, b] of BONES) {
+      bonePos[k++] = fr[a][0]; bonePos[k++] = fr[a][1]; bonePos[k++] = fr[a][2];
+      bonePos[k++] = fr[b][0]; bonePos[k++] = fr[b][1]; bonePos[k++] = fr[b][2];
+    }
+    boneGeom.attributes.position.needsUpdate = true;
+
+    const ph = clip.metrics.phases;
+    const col = f === ph.contact ? 0xef4444 : f === ph.loading ? 0xf59e0b : color;
+    for (const s of spheres) s.material.color.setHex(col);
+
+    if (avatar) avatar.applyFrame(f, new THREE.Vector3(fr[0][0], fr[0][1], fr[0][2]));
+  }
+
+  // 描画のたびにサイズを見て追従する。ResizeObserver に頼らないのは、
+  // 表示状態によっては配信されないことがあるため（整数比較2回なので十分安い）。
+  function syncSize() {
+    const [w, h] = size();
+    if (w === W && h === H) return;
+    [W, H] = [w, h];
+    camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
+  }
+
+  return {
+    scene, camera, controls, renderer,
+    setFrame,
+    render: (dt) => { syncSize(); controls.update(); if (avatar) avatar.update(dt);
+                      renderer.render(scene, camera); },
+    async loadAvatar() {
+      if (avatar || !clip.pose) return;
+      avatar = await createAvatar(AVATAR, clip.joints, clip.pose);
+      avatar.attachRacket(clip.metrics.racket_side === "L" ? "left" : "right");
+      scene.add(avatar.root); avatar.setVisible(false);
+    },
+    setAvatar(on) {
+      showAvatar = on;
+      if (avatar) { avatar.setVisible(on); skel.visible = !on; }
+    },
+    hasAvatar: () => !!avatar,
+  };
 }
 
 function setStatus(msg) {
@@ -132,8 +245,7 @@ function setStatus(msg) {
 }
 
 function showWarnings(clips) {
-  const box = $("warnings");
-  box.innerHTML = "";
+  const box = $("warnings"); box.innerHTML = "";
   for (const c of clips) {
     const issues = c.quality?.issues || [];
     if (!issues.length) continue;
@@ -147,9 +259,9 @@ function showWarnings(clips) {
   }
 }
 
-function metricsTable(mine, ref) {
+function metricsTable(a, b) {
   const rows = [
-    ["撮影fps", c => `${c.fps.toFixed(0)}`],
+    ["撮影fps", c => c.fps.toFixed(0)],
     ["沈み込み → 打点", c => {
       const p = c.metrics.phases, s = p.contact - p.loading;
       return `${s} フレーム（${(s / c.fps).toFixed(2)} 秒）`;
@@ -157,148 +269,104 @@ function metricsTable(mine, ref) {
     ["重心の伸び上がり", c => `${(c.metrics.com_rise_m * 100).toFixed(1)} cm`],
     ["沈み込み膝角", c => `${c.metrics.min_knee_deg_overall.toFixed(0)}°`],
     ["打点の肘角", c => `${c.metrics.elbow_at_contact_deg.toFixed(0)}°`],
-    ["打点タイミング", c => `${c.metrics.contact_vs_compeak_s >= 0 ? "+" : ""}`
-      + `${c.metrics.contact_vs_compeak_s.toFixed(2)} 秒`],
+    ["打点タイミング", c =>
+      `${c.metrics.contact_vs_compeak_s >= 0 ? "+" : ""}${c.metrics.contact_vs_compeak_s.toFixed(2)} 秒`],
     ["体幹の傾き(接球時)", c => `${c.metrics.trunk_lean_at_contact_deg.toFixed(0)}°`],
   ];
   $("metrics").innerHTML =
-    `<tr><th>指標</th><th>${mine.label}</th><th>${ref.label}</th></tr>`
+    `<tr><th>指標</th><th>${a.label}</th><th>${b.label}</th></tr>`
     + rows.map(([k, f]) =>
-        `<tr><td>${k}</td><td class="m">${f(mine)}</td><td class="r">${f(ref)}</td></tr>`
-      ).join("");
+        `<tr><td>${k}</td><td class="m">${f(a)}</td><td class="r">${f(b)}</td></tr>`).join("");
 }
 
 async function main() {
-  let mine, ref;
+  let A, B;
   try {
-    [mine, ref] = await Promise.all(
-      ["data/mine.json", "data/reference.json"].map(u =>
-        fetch(u).then(r => { if (!r.ok) throw new Error(u + " が見つかりません"); return r.json(); })));
+    [A, B] = await Promise.all(["data/mine.json", "data/reference.json"].map(u =>
+      fetch(u).then(r => { if (!r.ok) throw new Error(u + " が見つかりません"); return r.json(); })));
   } catch (e) {
-    setStatus(`${e.message}  — tools/make_compare.py で生成してください`);
+    setStatus(`${e.message} — tools/make_compare.py で生成してください`);
     return;
   }
-  $("lblMine").textContent = mine.label;
-  $("lblRef").textContent = ref.label;
-  showWarnings([mine, ref]);
-  metricsTable(mine, ref);
+  $("lblA").textContent = A.label; $("lblB").textContent = B.label;
+  showWarnings([A, B]);
+  metricsTable(A, B);
+  $("scaleNote").textContent =
+    "骨格表示は復元された実寸なので、体格の差もそのまま出ます。"
+    + "体格差を消して技術だけを比べたい場合はアバター表示に切り替えてください"
+    + "（同じ体に両方の動きを流し込みます）。";
 
-  // ---- 3D ----
-  const host = $("view");
-  const W = host.clientWidth || 900, H = host.clientHeight || 480;
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(40, W / H, 0.01, 100);
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(W, H); renderer.setPixelRatio(devicePixelRatio);
-  host.appendChild(renderer.domElement);
-  const controls = new OrbitControls(camera, renderer.domElement);
-  camera.position.set(3.2, 1.5, 3.4); controls.target.set(0, 0.85, 0);
-
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
-  const key = new THREE.DirectionalLight(0xffffff, 1.1);
-  key.position.set(2, 3, 2); scene.add(key);
-  scene.add(new THREE.GridHelper(6, 12, 0x333a44, 0x222831));
-
-  new ResizeObserver(() => {
-    const w = host.clientWidth || W, h = host.clientHeight || H;
-    camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
-  }).observe(host);
-
-  setStatus("アバターを読み込み中…（初回は少し待ちます）");
-  let a, b;
-  try {
-    // 同じアバターを2体。体が同一なので、差はすべて動きの差になる。
-    a = await createAvatar(AVATAR, mine.joints, mine.pose);
-    b = await createAvatar(AVATAR, ref.joints, ref.pose);
-  } catch (e) {
-    setStatus("アバターを読み込めません: " + e.message);
-    return;
-  }
-  a.attachRacket(mine.metrics.racket_side === "L" ? "left" : "right");
-  b.attachRacket(ref.metrics.racket_side === "L" ? "left" : "right");
-  scene.add(a.root); scene.add(b.root);
-  tint(b.root, 0xf472b6);          // お手本を色分け
+  const paneA = makePane("viewA", A, 0x60a5fa);
+  const paneB = makePane("viewB", B, 0xf472b6);
   setStatus("");
 
-  function tint(root, hex) {
-    root.traverse(o => {
-      if (!o.material) return;
-      for (const m of [].concat(o.material)) {
-        if (m.color) m.color.lerp(new THREE.Color(hex), 0.55);
-      }
-    });
-  }
-  function ghost(root, on) {
-    root.traverse(o => {
-      if (!o.material) return;
-      for (const m of [].concat(o.material)) {
-        m.transparent = on;
-        m.opacity = on ? 0.45 : 1.0;
-        m.depthWrite = !on;
-        m.needsUpdate = true;
-      }
-    });
-  }
+  // ---- 視点の同期 ----
+  let sync = true, syncing = false;
+  const link = (src, dst) => src.controls.addEventListener("change", () => {
+    if (!sync || syncing) return;
+    syncing = true;
+    dst.camera.position.copy(src.camera.position);
+    dst.controls.target.copy(src.controls.target);
+    dst.camera.updateProjectionMatrix();
+    syncing = false;
+  });
+  link(paneA, paneB); link(paneB, paneA);
+  $("syncBtn").onclick = () => {
+    sync = !sync;
+    $("syncBtn").classList.toggle("on", sync);
+    $("syncBtn").textContent = sync ? "🔗 視点を同期" : "⛓️‍💥 個別に操作";
+  };
 
-  // ---- 表示モード ----
-  let side = true;
-  const modeBtn = $("modeBtn");
-  function applyMode() {
-    const dx = side ? SEP : 0;
-    a.root.position.x = -dx; b.root.position.x = dx;
-    ghost(a.root, !side); ghost(b.root, !side);
-    modeBtn.textContent = side ? "🫱🫲 並べる" : "👥 重ねる";
-    modeBtn.classList.toggle("on", side);
-  }
-  modeBtn.onclick = () => { side = !side; applyMode(); };
-  applyMode();
+  // ---- アバター切替（既定は骨格）----
+  const avBtn = $("avatarBtn");
+  let avatarOn = false, avatarReady = false;
+  avBtn.disabled = !(A.pose && B.pose);
+  avBtn.onclick = async () => {
+    if (!avatarReady) {
+      avBtn.disabled = true; avBtn.textContent = "🧍 読み込み中…";
+      try {
+        await paneA.loadAvatar(); await paneB.loadAvatar();
+        avatarReady = true;
+      } catch (e) {
+        avBtn.textContent = "🧍 読めません"; avBtn.title = String(e); return;
+      }
+      avBtn.disabled = false;
+    }
+    avatarOn = !avatarOn;
+    paneA.setAvatar(avatarOn); paneB.setAvatar(avatarOn);
+    avBtn.textContent = avatarOn ? "🦴 骨格" : "🧍 アバター";
+    avBtn.classList.toggle("on", avatarOn);
+    show(t);
+  };
 
   // ---- 局面で揃えた再生 ----
   const scrub = $("scrub");
-  const hips = new THREE.Vector3();
-  function show(t) {
-    for (const [clip, av] of [[mine, a], [ref, b]]) {
-      const f = frameAt(clip, t);
-      const j = clip.joints[f];
-      const [ax, sg] = clip.up_axis;
-      const horiz = [0, 1, 2].filter(k => k !== ax);
-      // 足元を原点に合わせる（クリップごとに立ち位置が違うため）
-      hips.set(0, j[0][ax] * sg - clip.groundY, 0);
-      av.applyFrame(f, hips);
-      clip._f = f;
-    }
-    $("posNote").textContent =
-      `${mine.label}: frame ${mine._f} (${(mine._f / mine.fps).toFixed(2)}s)　／　`
-      + `${ref.label}: frame ${ref._f} (${(ref._f / ref.fps).toFixed(2)}s)`;
-  }
-  // 各クリップの地面高さ（足の最低点）を求めて、立ち位置を揃える
-  for (const clip of [mine, ref]) {
-    const [ax, sg] = clip.up_axis;
-    let lo = Infinity;
-    for (const fr of clip.joints)
-      for (const idx of [7, 8, 10, 11]) lo = Math.min(lo, fr[idx][ax] * sg);
-    clip.groundY = lo;
+  let t = -1.0, playing = true, last = 0;
+
+  function show(v) {
+    const fa = frameAt(A, v), fb = frameAt(B, v);
+    paneA.setFrame(fa); paneB.setFrame(fb);
+    $("metaA").textContent = `frame ${fa} / ${A.joints.length - 1}　${(fa / A.fps).toFixed(2)}s`;
+    $("metaB").textContent = `frame ${fb} / ${B.joints.length - 1}　${(fb / B.fps).toFixed(2)}s`;
+    $("posNote").textContent = `局面 t = ${v.toFixed(2)}`;
   }
 
-  let playing = true, t = -1.0, last = 0;
   const playBtn = $("playBtn");
-  playBtn.onclick = () => {
-    playing = !playing; playBtn.textContent = playing ? "⏸" : "▶";
-  };
+  playBtn.onclick = () => { playing = !playing; playBtn.textContent = playing ? "⏸" : "▶"; };
   scrub.oninput = () => {
     playing = false; playBtn.textContent = "▶";
     t = parseFloat(scrub.value) / 100; show(t);
   };
 
+  let prev = 0;
   function loop(now) {
-    controls.update();
-    if (playing && now - last > 33) {
-      t += 0.02; if (t > 2.0) t = -1.5;
+    const dt = Math.min((now - prev) / 1000, 0.1); prev = now;
+    if (playing && now - last > 40) {
+      t += 0.025; if (t > 2.0) t = -1.5;
       scrub.value = String(Math.round(t * 100));
       show(t); last = now;
     }
-    a.update(0.016); b.update(0.016);
-    renderer.render(scene, camera);
+    paneA.render(dt); paneB.render(dt);
     requestAnimationFrame(loop);
   }
   show(t); requestAnimationFrame(loop);
