@@ -11,38 +11,46 @@
   body { margin:0; background:var(--bg); color:var(--fg);
          font-family: -apple-system, "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
          line-height:1.7; }
-  header { padding:16px 24px; border-bottom:1px solid var(--line); }
+  header { padding:14px 24px; border-bottom:1px solid var(--line); }
   header h1 { margin:0; font-size:18px; font-weight:600; }
   header a { color:var(--muted); font-size:12px; }
-  main { max-width:1200px; margin:0 auto; padding:18px 24px 40px; }
+  main { max-width:1240px; margin:0 auto; padding:16px 24px 40px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
-          padding:16px 18px; margin-bottom:16px; }
+          padding:14px 16px; margin-bottom:14px; }
   button { background:#374151; color:#fff; border:0; border-radius:8px;
-           padding:7px 14px; font-size:13px; font-weight:600; cursor:pointer; }
+           padding:6px 12px; font-size:13px; font-weight:600; cursor:pointer; }
   button.on { background:var(--accent); }
   button:disabled { opacity:.45; cursor:default; }
-  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .row { display:flex; gap:9px; align-items:center; flex-wrap:wrap; }
   .grow { flex:1; }
+  .sep { width:1px; height:22px; background:var(--line); margin:0 3px; }
 
-  .panes { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
-  @media (max-width:860px){ .panes { grid-template-columns:1fr; } }
-  .pane h4 { margin:0 0 6px; font-size:14px; font-weight:600; }
-  .pane .view { width:100%; height:420px; background:#0b0e12; border-radius:8px; }
-  .pane .meta { color:var(--muted); font-size:12px; margin-top:6px;
+  #panes { display:grid; grid-template-columns:1fr 1fr; gap:12px; position:relative; }
+  @media (max-width:880px){ #panes { grid-template-columns:1fr; } }
+  #draw { position:absolute; inset:0; touch-action:none; pointer-events:none;
+          border-radius:8px; z-index:5; }
+  .pane h4 { margin:0 0 5px; font-size:14px; font-weight:600; }
+  .pane .view { width:100%; height:430px; background:#0b0e12; border-radius:8px; }
+  .pane .meta { color:var(--muted); font-size:12px; margin-top:5px;
                 font-variant-numeric:tabular-nums; }
+  .pane .ctl { display:flex; gap:8px; align-items:center; margin-top:7px; }
+  .pane input[type=range]{ flex:1; }
   .tag { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:7px; }
+  .sw { width:19px; height:19px; border-radius:50%; cursor:pointer; display:inline-block;
+        border:2px solid transparent; }
+  .sw.active { border-color:#fff; box-shadow:0 0 0 1px #000; }
+  #drawTools.off { opacity:.45; }
 
-  input[type=range]{ width:100%; }
-  .phase { display:flex; justify-content:space-between; color:var(--muted);
-           font-size:11px; margin-top:2px; }
   .warn { background:#2a1f14; border:1px solid #7c5a1e; color:#fcd9a0;
-          border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:14px; }
-  .note { color:var(--muted); font-size:12px; margin-top:8px; }
+          border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:12px; }
+  .note { color:var(--muted); font-size:12px; margin-top:7px; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
-  th, td { padding:7px 6px; border-bottom:1px solid var(--line); text-align:right; }
+  th, td { padding:6px; border-bottom:1px solid var(--line); text-align:right; }
   th:first-child, td:first-child { text-align:left; color:var(--muted); }
   th { color:var(--muted); font-weight:500; font-size:12px; }
   td.m { color:var(--mine); } td.r { color:var(--ref); }
+  .unusable { color:#8a94a6; font-style:italic; cursor:help;
+              border-bottom:1px dotted #8a94a6; }
   .status { color:var(--muted); font-size:14px; }
 </style>
 </head>
@@ -57,41 +65,57 @@
 
   <div class="card">
     <div class="row">
-      <button id="playBtn">⏸</button>
+      <button id="linkBtn">🔗 局面で同期</button>
+      <button id="bothBtn">⏵⏵ 両方を再生</button>
+      <label style="display:flex; gap:5px; align-items:center">速さ
+        <select id="speed">
+          <option value="1">等倍（実時間）</option>
+          <option value="0.25">1/4</option>
+          <option value="0.1" selected>1/10</option>
+          <option value="0.04">1/25</option>
+        </select>
+      </label>
+      <div class="sep"></div>
+      <button id="camBtn" class="on">🎥 視点を同期</button>
       <button id="avatarBtn" disabled>🧍 アバター</button>
-      <button id="syncBtn" class="on">🔗 視点を同期</button>
-      <div class="grow"></div>
-      <span class="note" id="posNote"></span>
+      <div class="sep"></div>
+      <button id="modeBtn">✏️ 描き込み</button>
+      <span id="drawTools" class="off" style="display:flex; gap:7px; align-items:center">
+        <span class="sw active" data-c="#ef4444" style="background:#ef4444"></span>
+        <span class="sw" data-c="#fbbf24" style="background:#fbbf24"></span>
+        <span class="sw" data-c="#22d3ee" style="background:#22d3ee"></span>
+        <span class="sw" data-c="#ffffff" style="background:#ffffff"></span>
+        <button id="clearBtn">消去</button>
+      </span>
     </div>
 
-    <div class="panes" style="margin-top:12px">
+    <div id="panes" style="margin-top:11px">
       <div class="pane">
         <h4><span class="tag" style="background:var(--mine)"></span><span id="lblA">—</span></h4>
         <div class="view" id="viewA"></div>
+        <div class="ctl">
+          <button id="playA">▶</button>
+          <input type="range" id="scrubA" min="0" value="0" />
+        </div>
         <div class="meta" id="metaA"></div>
       </div>
       <div class="pane">
         <h4><span class="tag" style="background:var(--ref)"></span><span id="lblB">—</span></h4>
         <div class="view" id="viewB"></div>
+        <div class="ctl">
+          <button id="playB">▶</button>
+          <input type="range" id="scrubB" min="0" value="0" />
+        </div>
         <div class="meta" id="metaB"></div>
       </div>
+      <canvas id="draw"></canvas>
     </div>
 
-    <div style="margin-top:12px">
-      <input type="range" id="scrub" min="-150" max="200" value="-100" />
-      <div class="phase">
-        <span>← 構え</span><span>沈み込み</span><span>打点</span><span>フォロースルー →</span>
-      </div>
-    </div>
-    <div class="note">
-      スライダーは<b>動作の局面</b>で揃えてあります（沈み込み=0、打点=1）。
-      撮影fpsやスイングの速さが違っても同じ瞬間どうしが並びます。
-      オレンジ=沈み込み、赤=打点。ドラッグで回転・スクロールでズーム。
-    </div>
+    <div class="note" id="hint"></div>
   </div>
 
   <div class="card">
-    <h3 style="margin:0 0 10px; font-size:15px">数値の比較</h3>
+    <h3 style="margin:0 0 9px; font-size:15px">数値の比較</h3>
     <table id="metrics"></table>
     <div class="note" id="scaleNote"></div>
   </div>
@@ -121,45 +145,64 @@ const BONES = [[1,0],[2,0],[3,0],[4,1],[5,2],[6,3],[7,4],[8,5],[9,6],[10,7],
   [11,8],[12,9],[13,9],[14,9],[15,12],[16,13],[17,14],[18,16],[19,17],
   [20,18],[21,19],[22,20],[23,21]];
 const FOOT_IDS = [7, 8, 10, 11];
+const L_HIP = 1, R_HIP = 2;
 
 /**
- * 動作の局面で時間を揃える。
- * 沈み込みを t=0、打点を t=1 として、各クリップの自分のフレームに写す。
- * これで撮影fpsもスイングの速さも吸収される。
+ * 表示座標へ直す。比較のために3つ揃える:
+ *   1. up軸を +Y に
+ *   2. 体の向きを揃える（腰の左→右を +X に回す）。揃えないと片方が背中向きになる
+ *   3. 足元を床(0)に。基準は最低値ではなく**中央値**を使う。
+ *      最低値だとクリップ中に1度でも沈んだ瞬間が基準になり、
+ *      復元がドリフトしていると開始時点で体が宙に浮いて見える。
  */
-function frameAt(clip, t) {
+function toDisplay(clip) {
+  const [ax, sg] = clip.up_axis;
+  const hz = [0, 1, 2].filter(k => k !== ax);
+  const d = clip.joints.map(fr => fr.map(p => [p[hz[0]], p[ax] * sg, p[hz[1]]]));
+
+  // --- 向きを揃える ---
+  let rx = 0, rz = 0;
+  for (const fr of d) {
+    rx += fr[R_HIP][0] - fr[L_HIP][0];
+    rz += fr[R_HIP][2] - fr[L_HIP][2];
+  }
+  const ang = Math.atan2(rz, rx);          // 現在の「右」方向
+  const ca = Math.cos(-ang), sa = Math.sin(-ang);
+  for (const fr of d) for (const p of fr) {
+    const x = p[0], z = p[2];
+    p[0] = x * ca - z * sa;
+    p[2] = x * sa + z * ca;
+  }
+
+  // --- 足元と水平位置 ---
+  const lows = d.map(fr => Math.min(...FOOT_IDS.map(i => fr[i][1]))).sort((a, b) => a - b);
+  const ground = lows[Math.floor(lows.length / 2)];   // 中央値
+  let sx = 0, sz = 0;
+  for (const fr of d) { sx += fr[0][0]; sz += fr[0][2]; }
+  const cx = sx / d.length, cz = sz / d.length;
+  for (const fr of d) for (const p of fr) { p[0] -= cx; p[1] -= ground; p[2] -= cz; }
+  return d;
+}
+
+/** 局面（沈み込み=0、打点=1）と、そのクリップのフレームを相互に変換する */
+function phaseOf(clip, f) {
   const { loading, contact } = clip.metrics.phases;
-  const N = clip.joints.length;
   const span = contact - loading;
-  const f = span >= 3
-    ? Math.round(loading + t * span)
-    : Math.round(((t + 1.5) / 3.5) * (N - 1));   // 局面が取れないクリップは比例配分
+  return span >= 3 ? (f - loading) / span
+                   : (f / (clip.joints.length - 1)) * 3.5 - 1.5;
+}
+function frameOfPhase(clip, t) {
+  const { loading, contact } = clip.metrics.phases;
+  const N = clip.joints.length, span = contact - loading;
+  const f = span >= 3 ? Math.round(loading + t * span)
+                      : Math.round(((t + 1.5) / 3.5) * (N - 1));
   return Math.max(0, Math.min(N - 1, f));
 }
 
-/** 表示座標へ直す: up軸を +Y に、足元を床(0)に、水平位置を原点に寄せる */
-function toDisplay(clip) {
-  const [ax, sg] = clip.up_axis;
-  const horiz = [0, 1, 2].filter(k => k !== ax);
-  const disp = clip.joints.map(fr =>
-    fr.map(p => [p[horiz[0]], p[ax] * sg, p[horiz[1]]]));
-
-  let ground = Infinity, sx = 0, sz = 0, n = 0;
-  for (const fr of disp) {
-    for (const i of FOOT_IDS) ground = Math.min(ground, fr[i][1]);
-    sx += fr[0][0]; sz += fr[0][2]; n++;
-  }
-  const cx = sx / n, cz = sz / n;
-  for (const fr of disp) for (const p of fr) {
-    p[0] -= cx; p[1] -= ground; p[2] -= cz;
-  }
-  return disp;
-}
-
-/** 1画面ぶん。骨格を主役に、アバターは任意で重ねる。 */
+/** 1画面ぶん。骨格が主役、アバターは任意。 */
 function makePane(hostId, clip, color) {
   const host = $(hostId);
-  const size = () => [host.clientWidth || 520, host.clientHeight || 420];
+  const size = () => [host.clientWidth || 560, host.clientHeight || 430];
   let [W, H] = size();
 
   const scene = new THREE.Scene();
@@ -168,7 +211,7 @@ function makePane(hostId, clip, color) {
   renderer.setSize(W, H); renderer.setPixelRatio(devicePixelRatio);
   host.appendChild(renderer.domElement);
   const controls = new OrbitControls(camera, renderer.domElement);
-  camera.position.set(2.4, 1.2, 2.4); controls.target.set(0, 0.9, 0);
+  camera.position.set(2.6, 1.2, 2.6); controls.target.set(0, 0.9, 0);
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
   const key = new THREE.DirectionalLight(0xffffff, 1.0);
@@ -178,7 +221,6 @@ function makePane(hostId, clip, color) {
   const disp = toDisplay(clip);
   const J = disp[0].length;
 
-  // ---- 骨格 ----
   const skel = new THREE.Group(); scene.add(skel);
   const boneGeom = new THREE.BufferGeometry();
   const bonePos = new Float32Array(BONES.length * 2 * 3);
@@ -187,12 +229,12 @@ function makePane(hostId, clip, color) {
     new THREE.LineBasicMaterial({ color: 0x9db2cc })));
   const spheres = [];
   for (let j = 0; j < J; j++) {
-    const s = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 10),
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.023, 10, 10),
       new THREE.MeshBasicMaterial({ color }));
     skel.add(s); spheres.push(s);
   }
 
-  let avatar = null, showAvatar = false;
+  let avatar = null;
 
   function setFrame(f) {
     const fr = disp[f];
@@ -204,15 +246,16 @@ function makePane(hostId, clip, color) {
     }
     boneGeom.attributes.position.needsUpdate = true;
 
+    // 局面の色。1フレームだけだと再生中に見逃すので前後1フレームまで含める。
     const ph = clip.metrics.phases;
-    const col = f === ph.contact ? 0xef4444 : f === ph.loading ? 0xf59e0b : color;
+    const near = (a, b) => Math.abs(a - b) <= 1;
+    const col = near(f, ph.contact) ? 0xef4444
+              : near(f, ph.loading) ? 0xf59e0b : color;
     for (const s of spheres) s.material.color.setHex(col);
 
     if (avatar) avatar.applyFrame(f, new THREE.Vector3(fr[0][0], fr[0][1], fr[0][2]));
   }
 
-  // 描画のたびにサイズを見て追従する。ResizeObserver に頼らないのは、
-  // 表示状態によっては配信されないことがあるため（整数比較2回なので十分安い）。
   function syncSize() {
     const [w, h] = size();
     if (w === W && h === H) return;
@@ -221,9 +264,10 @@ function makePane(hostId, clip, color) {
   }
 
   return {
-    scene, camera, controls, renderer,
+    clip, camera, controls, scene, frames: disp.length,
     setFrame,
-    render: (dt) => { syncSize(); controls.update(); if (avatar) avatar.update(dt);
+    render: (dt) => { syncSize(); controls.update();
+                      if (avatar) avatar.update(dt);
                       renderer.render(scene, camera); },
     async loadAvatar() {
       if (avatar || !clip.pose) return;
@@ -231,11 +275,8 @@ function makePane(hostId, clip, color) {
       avatar.attachRacket(clip.metrics.racket_side === "L" ? "left" : "right");
       scene.add(avatar.root); avatar.setVisible(false);
     },
-    setAvatar(on) {
-      showAvatar = on;
-      if (avatar) { avatar.setVisible(on); skel.visible = !on; }
-    },
-    hasAvatar: () => !!avatar,
+    setAvatar(on) { if (avatar) { avatar.setVisible(on); skel.visible = !on; } },
+    setOrbit(on) { controls.enabled = on; },
   };
 }
 
@@ -249,10 +290,13 @@ function showWarnings(clips) {
   for (const c of clips) {
     const issues = c.quality?.issues || [];
     if (!issues.length) continue;
+    // 生成側（tools/）は **強調** 付きで文を書く。エスケープしてから太字だけ戻す。
+    const esc = s => s.replace(/[&<>]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
+    const rich = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
     const d = document.createElement("div");
     d.className = "warn";
-    d.innerHTML = `<b>⚠️ 「${c.label}」の復元に問題があります</b><br>`
-      + issues.map(s => "・" + s).join("<br>")
+    d.innerHTML = `<b>⚠️ 「${esc(c.label)}」の復元に問題があります</b><br>`
+      + issues.map(s => "・" + rich(s)).join("<br>")
       + "<br><span style='opacity:.8'>比較結果はこの素材の問題を反映します。"
       + "解析の不具合ではありません。</span>";
     box.appendChild(d);
@@ -260,23 +304,85 @@ function showWarnings(clips) {
 }
 
 function metricsTable(a, b) {
+  // world=true の指標は世界座標での並進から出る。カメラが動く素材では
+  // カメラの動きが人物の動きとして足し込まれるので、数字を出してはいけない（issue #8）。
+  // 関節角は body_pose 由来なので影響を受けにくく、そのまま出してよい。
   const rows = [
     ["撮影fps", c => c.fps.toFixed(0)],
     ["沈み込み → 打点", c => {
       const p = c.metrics.phases, s = p.contact - p.loading;
       return `${s} フレーム（${(s / c.fps).toFixed(2)} 秒）`;
     }],
-    ["重心の伸び上がり", c => `${(c.metrics.com_rise_m * 100).toFixed(1)} cm`],
+    ["重心の伸び上がり", c => `${(c.metrics.com_rise_m * 100).toFixed(1)} cm`, true],
     ["沈み込み膝角", c => `${c.metrics.min_knee_deg_overall.toFixed(0)}°`],
     ["打点の肘角", c => `${c.metrics.elbow_at_contact_deg.toFixed(0)}°`],
     ["打点タイミング", c =>
-      `${c.metrics.contact_vs_compeak_s >= 0 ? "+" : ""}${c.metrics.contact_vs_compeak_s.toFixed(2)} 秒`],
+      `${c.metrics.contact_vs_compeak_s >= 0 ? "+" : ""}${c.metrics.contact_vs_compeak_s.toFixed(2)} 秒`,
+     true],
     ["体幹の傾き(接球時)", c => `${c.metrics.trunk_lean_at_contact_deg.toFixed(0)}°`],
   ];
+  const moved = c => c.quality?.camera && !c.quality.camera.is_static;
+  const cell = (c, f, world) => world && moved(c)
+    ? `<span class="unusable" title="この素材はカメラが動いているため、世界座標から出る値は信用できません（issue #8）">— 使えません</span>`
+    : f(c);
   $("metrics").innerHTML =
     `<tr><th>指標</th><th>${a.label}</th><th>${b.label}</th></tr>`
-    + rows.map(([k, f]) =>
-        `<tr><td>${k}</td><td class="m">${f(a)}</td><td class="r">${f(b)}</td></tr>`).join("");
+    + rows.map(([k, f, world]) =>
+        `<tr><td>${k}</td><td class="m">${cell(a, f, world)}</td>`
+        + `<td class="r">${cell(b, f, world)}</td></tr>`).join("");
+}
+
+/** 二画面をまたいで描ける注釈レイヤー（同じ関節どうしを線で結ぶような使い方） */
+function setupDraw(panes) {
+  const cv = $("draw"), host = $("panes");
+  const state = { on: false, color: "#ef4444", drawing: false, ctx: null };
+
+  let W = 0, H = 0;
+  function resize() {
+    const w = host.clientWidth, h = host.clientHeight, dpr = devicePixelRatio || 1;
+    if (!w || !h) return;
+    // 毎フレーム呼ばれるので、サイズが変わっていなければ即戻る。
+    // ここを抜けると toDataURL とキャンバス再生成が毎フレーム走って再生が止まる。
+    if (w === W && h === H) return;
+    [W, H] = [w, h];
+    const img = state.ctx && cv.width ? cv.toDataURL() : null;
+    cv.width = w * dpr; cv.height = h * dpr;
+    cv.style.width = w + "px"; cv.style.height = h + "px";
+    const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr);
+    state.ctx = ctx;
+    if (img) { const i = new Image(); i.onload = () => ctx.drawImage(i, 0, 0, w, h); i.src = img; }
+  }
+  resize();
+  const at = (e) => { const r = cv.getBoundingClientRect();
+                      return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+  cv.onpointerdown = (e) => {
+    if (!state.on) return;
+    state.drawing = true; cv.setPointerCapture(e.pointerId);
+    const { x, y } = at(e), c = state.ctx;
+    c.strokeStyle = state.color; c.lineWidth = 4; c.lineCap = "round"; c.lineJoin = "round";
+    c.beginPath(); c.moveTo(x, y);
+  };
+  cv.onpointermove = (e) => {
+    if (!state.drawing) return;
+    const { x, y } = at(e); state.ctx.lineTo(x, y); state.ctx.stroke();
+  };
+  cv.onpointerup = cv.onpointercancel = () => { state.drawing = false; };
+
+  $("modeBtn").onclick = () => {
+    state.on = !state.on;
+    cv.style.pointerEvents = state.on ? "auto" : "none";
+    for (const p of panes) p.setOrbit(!state.on);
+    $("modeBtn").textContent = state.on ? "🔄 回転に戻る" : "✏️ 描き込み";
+    $("modeBtn").classList.toggle("on", state.on);
+    $("drawTools").classList.toggle("off", !state.on);
+  };
+  $("clearBtn").onclick = () => state.ctx.clearRect(0, 0, cv.width, cv.height);
+  document.querySelectorAll(".sw").forEach(sw => sw.onclick = () => {
+    state.color = sw.dataset.c;
+    document.querySelectorAll(".sw").forEach(s => s.classList.remove("active"));
+    sw.classList.add("active");
+  });
+  return { resize };
 }
 
 async function main() {
@@ -292,84 +398,118 @@ async function main() {
   showWarnings([A, B]);
   metricsTable(A, B);
   $("scaleNote").textContent =
-    "骨格表示は復元された実寸なので、体格の差もそのまま出ます。"
-    + "体格差を消して技術だけを比べたい場合はアバター表示に切り替えてください"
-    + "（同じ体に両方の動きを流し込みます）。";
+    "骨格は復元された実寸なので体格差もそのまま出ます。体格差を消して技術だけを"
+    + "比べたい場合はアバター表示に切り替えてください（同じ体に両方の動きを流します）。";
+  $("hint").innerHTML =
+    "各画面は<b>独立して</b>コマ送り・再生できます。"
+    + "<b>🔗 局面で同期</b>を入れると、沈み込み=0・打点=1 で揃えて連動します"
+    + "（撮影fpsやスイングの速さが違っても同じ瞬間が並びます）。"
+    + "オレンジ=沈み込み、赤=打点。";
 
-  const paneA = makePane("viewA", A, 0x60a5fa);
-  const paneB = makePane("viewB", B, 0xf472b6);
+  const pA = makePane("viewA", A, 0x60a5fa);
+  const pB = makePane("viewB", B, 0xf472b6);
+  const panes = [pA, pB];
+  window.__cmp = { panes };   // ローカル検証用（コンソールから状態を覗く）
+  const draw = setupDraw(panes);
   setStatus("");
 
+  // ---- 各画面の再生（既定は独立）----
+  const ui = [
+    { p: pA, scrub: $("scrubA"), play: $("playA"), meta: $("metaA"), clip: A, f: 0, playing: false },
+    { p: pB, scrub: $("scrubB"), play: $("playB"), meta: $("metaB"), clip: B, f: 0, playing: false },
+  ];
+  let link = false;
+
+  function apply(u, f, propagate = true) {
+    u.f = Math.max(0, Math.min(u.p.frames - 1, Math.round(f)));
+    u.p.setFrame(u.f);
+    u.scrub.value = String(u.f);
+    const ph = u.clip.metrics.phases;
+    const mark = u.f === ph.contact ? "  ← 打点"
+               : u.f === ph.loading ? "  ← 沈み込み" : "";
+    u.meta.textContent =
+      `frame ${u.f} / ${u.p.frames - 1}　${(u.f / u.clip.fps).toFixed(2)}s${mark}`;
+    if (link && propagate) {
+      const other = ui.find(o => o !== u);
+      apply(other, frameOfPhase(other.clip, phaseOf(u.clip, u.f)), false);
+    }
+  }
+  for (const u of ui) {
+    u.scrub.max = String(u.p.frames - 1);
+    u.scrub.oninput = () => { u.playing = false; u.play.textContent = "▶";
+                              apply(u, parseInt(u.scrub.value)); };
+    u.play.onclick = () => { u.playing = !u.playing;
+                             u.play.textContent = u.playing ? "⏸" : "▶"; };
+    apply(u, u.clip.metrics.phases.loading);   // 沈み込みから開始
+  }
+
+  $("linkBtn").onclick = () => {
+    link = !link;
+    $("linkBtn").classList.toggle("on", link);
+    if (link) apply(ui[0], ui[0].f);           // 相手を今の局面に合わせる
+  };
+  $("bothBtn").onclick = () => {
+    const on = !(ui[0].playing && ui[1].playing);
+    for (const u of ui) { u.playing = on; u.play.textContent = on ? "⏸" : "▶"; }
+  };
+
   // ---- 視点の同期 ----
-  let sync = true, syncing = false;
-  const link = (src, dst) => src.controls.addEventListener("change", () => {
-    if (!sync || syncing) return;
+  let camSync = true, syncing = false;
+  const linkCam = (src, dst) => src.controls.addEventListener("change", () => {
+    if (!camSync || syncing) return;
     syncing = true;
     dst.camera.position.copy(src.camera.position);
     dst.controls.target.copy(src.controls.target);
-    dst.camera.updateProjectionMatrix();
     syncing = false;
   });
-  link(paneA, paneB); link(paneB, paneA);
-  $("syncBtn").onclick = () => {
-    sync = !sync;
-    $("syncBtn").classList.toggle("on", sync);
-    $("syncBtn").textContent = sync ? "🔗 視点を同期" : "⛓️‍💥 個別に操作";
+  linkCam(pA, pB); linkCam(pB, pA);
+  $("camBtn").onclick = () => {
+    camSync = !camSync;
+    $("camBtn").classList.toggle("on", camSync);
+    $("camBtn").textContent = camSync ? "🎥 視点を同期" : "🎥 個別の視点";
   };
 
   // ---- アバター切替（既定は骨格）----
   const avBtn = $("avatarBtn");
-  let avatarOn = false, avatarReady = false;
+  let avatarOn = false, ready = false;
   avBtn.disabled = !(A.pose && B.pose);
   avBtn.onclick = async () => {
-    if (!avatarReady) {
+    if (!ready) {
       avBtn.disabled = true; avBtn.textContent = "🧍 読み込み中…";
-      try {
-        await paneA.loadAvatar(); await paneB.loadAvatar();
-        avatarReady = true;
-      } catch (e) {
-        avBtn.textContent = "🧍 読めません"; avBtn.title = String(e); return;
-      }
+      try { await pA.loadAvatar(); await pB.loadAvatar(); ready = true; }
+      catch (e) { avBtn.textContent = "🧍 読めません"; avBtn.title = String(e); return; }
       avBtn.disabled = false;
     }
     avatarOn = !avatarOn;
-    paneA.setAvatar(avatarOn); paneB.setAvatar(avatarOn);
+    for (const p of panes) p.setAvatar(avatarOn);
     avBtn.textContent = avatarOn ? "🦴 骨格" : "🧍 アバター";
     avBtn.classList.toggle("on", avatarOn);
-    show(t);
+    for (const u of ui) apply(u, u.f, false);
   };
 
-  // ---- 局面で揃えた再生 ----
-  const scrub = $("scrub");
-  let t = -1.0, playing = true, last = 0;
+  // ---- 描画ループ ----
+  // 再生速度は「実時間の何倍か」。撮影fpsのまま流すと、スロー撮影(240fps)の
+  // クリップは実時間ぶんの一瞬（0.5秒弱）で終わって見えないため既定を 1/10 にする。
+  // 両者に同じ倍率を掛けるので、二つのクリップの時間比は保たれる。
+  let speed = parseFloat($("speed").value);
+  $("speed").onchange = () => { speed = parseFloat($("speed").value); };
 
-  function show(v) {
-    const fa = frameAt(A, v), fb = frameAt(B, v);
-    paneA.setFrame(fa); paneB.setFrame(fb);
-    $("metaA").textContent = `frame ${fa} / ${A.joints.length - 1}　${(fa / A.fps).toFixed(2)}s`;
-    $("metaB").textContent = `frame ${fb} / ${B.joints.length - 1}　${(fb / B.fps).toFixed(2)}s`;
-    $("posNote").textContent = `局面 t = ${v.toFixed(2)}`;
-  }
-
-  const playBtn = $("playBtn");
-  playBtn.onclick = () => { playing = !playing; playBtn.textContent = playing ? "⏸" : "▶"; };
-  scrub.oninput = () => {
-    playing = false; playBtn.textContent = "▶";
-    t = parseFloat(scrub.value) / 100; show(t);
-  };
-
-  let prev = 0;
+  let prev = 0, acc = [0, 0];
   function loop(now) {
     const dt = Math.min((now - prev) / 1000, 0.1); prev = now;
-    if (playing && now - last > 40) {
-      t += 0.025; if (t > 2.0) t = -1.5;
-      scrub.value = String(Math.round(t * 100));
-      show(t); last = now;
-    }
-    paneA.render(dt); paneB.render(dt);
+    ui.forEach((u, i) => {
+      if (!u.playing) return;
+      acc[i] += dt * u.clip.fps * speed;
+      if (acc[i] >= 1) {
+        const step = Math.floor(acc[i]); acc[i] -= step;
+        apply(u, (u.f + step) % u.p.frames, link && i === 0);
+      }
+    });
+    for (const p of panes) p.render(dt);
+    draw.resize();
     requestAnimationFrame(loop);
   }
-  show(t); requestAnimationFrame(loop);
+  requestAnimationFrame(loop);
 }
 
 main();

@@ -19,6 +19,11 @@ dev = [
 plot = [
     "matplotlib>=3.7",
 ]
+# 動画そのものを読む道具（tools/camera_motion.py）を使う場合のみ
+video = [
+    "imageio>=2.31",
+    "imageio-ffmpeg>=0.4",
+]
 
 [build-system]
 requires = ["hatchling"]

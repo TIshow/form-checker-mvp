@@ -50,13 +50,30 @@ def quality(joints: np.ndarray, phases: dict) -> dict:
             "issues": issues}
 
 
-def bundle(joints_dir: str, fps: float, label: str) -> dict:
+def bundle(joints_dir: str, fps: float, label: str,
+           video: str | None = None,
+           trim: tuple[float | None, float | None] = (None, None)) -> dict:
     d = Path(joints_dir)
     joints = np.load(d / "gv_joints.npy")
     res = analysis.analyze_json(joints, fps)
     res["label"] = label
     res["fps"] = fps
     res["quality"] = quality(joints, res["metrics"]["phases"])
+
+    # 元動画があるなら、カメラが動いていないかも見る（issue #8）。
+    # 動いていると世界座標が汚染され、跳躍や伸び上がりの数値が意味を失う。
+    # 関節列だけからは判別できない（接地足の滑りはサーブ本来の動きと区別がつかない）。
+    if video:
+        try:
+            from camera_motion import analyze as cam_analyze, summarize
+            cam = cam_analyze(video, *trim)
+            res["quality"]["camera"] = {
+                "motion_per_sec": round(cam["motion_per_sec"], 5),
+                "is_static": cam["is_static"],
+            }
+            res["quality"]["issues"] += summarize(cam)
+        except SystemExit as e:      # imageio 未導入など。解析自体は続ける
+            print(f"⚠️ カメラ運動を調べられませんでした: {e}")
 
     pose_path = d / "gv_pose.npz"
     if pose_path.exists():
@@ -72,20 +89,27 @@ def main() -> None:
     ap.add_argument("--mine", required=True, help="自分の結果ディレクトリ")
     ap.add_argument("--mine-fps", type=float, required=True)
     ap.add_argument("--mine-label", default="あなた")
+    ap.add_argument("--mine-video", help="元動画（カメラ運動の点検に使う）")
     ap.add_argument("--ref", required=True, help="お手本の結果ディレクトリ")
     ap.add_argument("--ref-fps", type=float, required=True)
     ap.add_argument("--ref-label", default="お手本")
+    ap.add_argument("--ref-video", help="元動画（カメラ運動の点検に使う）")
+    ap.add_argument("--ref-trim", nargs=2, type=float, metavar=("開始", "終了"),
+                    help="お手本を復元したときのトリム区間（秒）")
     ap.add_argument("--out", default="web/data")
     args = ap.parse_args()
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
-    for key, src, fps, label in [
-        ("mine", args.mine, args.mine_fps, args.mine_label),
-        ("reference", args.ref, args.ref_fps, args.ref_label),
+    ref_trim = tuple(args.ref_trim) if args.ref_trim else (None, None)
+    for key, src, fps, label, video, trim in [
+        ("mine", args.mine, args.mine_fps, args.mine_label,
+         args.mine_video, (None, None)),
+        ("reference", args.ref, args.ref_fps, args.ref_label,
+         args.ref_video, ref_trim),
     ]:
-        b = bundle(src, fps, label)
+        b = bundle(src, fps, label, video, trim)
         path = out / f"{key}.json"
         path.write_text(json.dumps(b, ensure_ascii=False), encoding="utf-8")
         ph = b["metrics"]["phases"]
@@ -94,7 +118,7 @@ def main() -> None:
               f"{b['metrics']['n_frames']}フレーム @{fps:.0f}fps  "
               f"沈み込み{ph['loading']} → 打点{ph['contact']}")
         for msg in b["quality"]["issues"]:
-            print(f"   ⚠️ {msg}")
+            print(f"   ⚠️ {msg.replace('**', '')}")   # 強調記法は UI 側で解釈する
 
 
 if __name__ == "__main__":

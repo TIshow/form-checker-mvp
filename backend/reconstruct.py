@@ -132,11 +132,17 @@ def _probe_fps(path: str) -> float | None:
     return None
 
 
-def _gvhmr_joints(video_bytes: bytes, name: str):
+def _gvhmr_joints(video_bytes: bytes, name: str,
+                  start: float | None = None, end: float | None = None):
     """GVHMR を実行し、24関節(F,24,3 world座標[m])とレンダ動画を返す。
 
     コンテナ内で動く純ヘルパー。CLI用 reconstruct と Web用 run_job が共有する。
     静止カメラ前提で `-s`（SLAM回避）。
+
+    start/end を渡すとその区間だけを切り出してから復元する。動作の前後に
+    長い静止区間があると、そこで復元がドリフトして利き手判定などを狂わせる。
+    実例: 10.9秒のうちサーブは末尾3秒だけで、前半8秒の立ち姿のノイズが
+    利き手を誤判定させた。GPU時間も減る。
     """
     import glob
     import os
@@ -169,6 +175,22 @@ def _gvhmr_joints(video_bytes: bytes, name: str):
     src = f"inputs/{stem}.mp4"
     with open(src, "wb") as f:
         f.write(video_bytes)
+
+    if start is not None or end is not None:
+        trimmed = f"inputs/{stem}_trim.mp4"
+        cmd = ["ffmpeg", "-y", "-i", src]
+        if start is not None:
+            cmd += ["-ss", str(start)]
+        if end is not None:
+            cmd += ["-to", str(end)]
+        # 再エンコードする（コピーだとキーフレーム境界までしか切れない）
+        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-an", trimmed]
+        subprocess.run(cmd, check=True, capture_output=True)
+        src = trimmed
+        print(f"[trim] {start}〜{end} 秒を切り出しました")
+
+    # GVHMR は入力ファイル名で出力先を決めるので、トリム後の名前に合わせる
+    stem = Path(src).stem
 
     video_fps = _probe_fps(src)
     print(f"[fps] 動画から検出: {video_fps}")
@@ -216,13 +238,14 @@ def _gvhmr_joints(video_bytes: bytes, name: str):
 
 
 @app.function(image=image, gpu="T4", volumes={ASSETS: vol}, timeout=900)
-def reconstruct(video_bytes: bytes, name: str) -> dict:
+def reconstruct(video_bytes: bytes, name: str,
+                start: float | None = None, end: float | None = None) -> dict:
     """CLI用。関節・回転・レンダ動画を返す（`modal run` → ローカル保存）。"""
     import io
 
     import numpy as np
 
-    joints, pose, renders, video_fps = _gvhmr_joints(video_bytes, name)
+    joints, pose, renders, video_fps = _gvhmr_joints(video_bytes, name, start, end)
 
     jbuf = io.BytesIO()
     np.save(jbuf, joints)
@@ -318,13 +341,14 @@ def web():
 
 
 @app.local_entrypoint()
-def main(video: str, out: str = "."):
+def main(video: str, out: str = ".",
+         start: float | None = None, end: float | None = None):
     """ローカルの動画を Modal で復元し、関節 .npy とレンダ動画をローカルへ保存する。"""
     video_path = Path(video)
     data = video_path.read_bytes()
     print(f"送信: {video_path} ({len(data) / 1e6:.1f} MB) → Modal GPU で復元中…")
 
-    results = reconstruct.remote(data, video_path.name)
+    results = reconstruct.remote(data, video_path.name, start, end)
 
     out_dir = Path(out)
     out_dir.mkdir(parents=True, exist_ok=True)
