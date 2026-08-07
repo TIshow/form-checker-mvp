@@ -4,7 +4,7 @@
     python -m analysis --joints gv_joints.npy --fps 120
 
     # さらに output/ にレポートとグラフを保存
-    python -m analysis --joints gv_joints.npy --fps 30 --save output
+    python -m analysis --joints gv_joints.npy --fps 60 --save output
 
 重心・上軸は関節から導出するため、入力は関節 .npy 1つでよい。
 """

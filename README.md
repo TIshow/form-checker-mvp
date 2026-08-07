@@ -53,7 +53,7 @@
 | 重心の高さ範囲 | 0.890 – 1.120 m（身長の約55%＝解剖学的に妥当） |
 | 沈み込み（トロフィーポーズ） | frame 87 / 0.953 m |
 | **打点（動画上の実際の接球と一致）** | **frame 103 / 1.120 m** |
-| 伸び上がり | +0.167 m / 0.53 秒 |
+| 伸び上がり | +0.167 m / **0.28 秒** |
 
 **重心の最高点が実際の打点と一致した。**
 動画のピクセルを見ずに、3D重心の波形だけからサーブの打点を特定できたことになり、
@@ -116,7 +116,7 @@ pytest
 
 # 3D復元（Modal GPU）→ 解析。詳細は backend/README.md
 modal run backend/reconstruct.py --video temp_my_serve.mp4
-python -m analysis --joints gv_joints.npy --fps 30 --save output
+python -m analysis --joints gv_joints.npy --fps 60 --save output
 ```
 
 ## 実行環境について

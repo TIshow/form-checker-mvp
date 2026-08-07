@@ -37,7 +37,7 @@ modal volume put gvhmr-assets \
 modal run backend/reconstruct.py --video temp_my_serve.mp4
 # → gv_joints.npy / gv_pose.npz / レンダ動画 render_*.mp4 がカレントに返る
 
-python -m analysis --joints gv_joints.npy --fps 30 --save output
+python -m analysis --joints gv_joints.npy --fps 60 --save output
 ```
 
 ブラウザもセッション管理も不要。同じ関数を Web からも呼べる（下記）。

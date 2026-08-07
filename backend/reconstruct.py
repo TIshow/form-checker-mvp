@@ -20,7 +20,7 @@ analysis 側（純numpy）の責務。issue #2（Modal化）と issue #3 フェ�
   modal run backend/reconstruct.py --video temp_my_serve.mp4
   # → gv_joints.npy / gv_pose.npz / レンダ動画 render_*.mp4 がカレントに返る
   #   gv_pose.npz = 関節の回転（アバターへのリターゲット用。issue #5）
-  # → python -m analysis --joints gv_joints.npy --fps 30 --save output
+  # → python -m analysis --joints gv_joints.npy --fps 60 --save output
 
 ## Web（ブラウザから。issue #3）
 
@@ -100,6 +100,38 @@ def fetch_checkpoints():
             print(os.path.join(root, f))
 
 
+def _probe_fps(path: str) -> float | None:
+    """動画の実フレームレートを ffprobe で読む。
+
+    fps を人が申告する設計だと、取り違えても誰も気づけない。実際 60fps の動画を
+    30fps として解析し、時間の指標がすべて2倍ずれていた。動画から取れるものは
+    動画から取る。
+
+    注意: これはコンテナ上の再生フレームレート。スローモーションとして
+    「引き伸ばして保存された」動画では、実際の撮影レートはこれより高い。
+    その場合は呼び出し側で上書きする必要がある。
+    """
+    import json
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=avg_frame_rate,r_frame_rate",
+             "-of", "json", path],
+            capture_output=True, text=True, timeout=60, check=True).stdout
+        st = json.loads(out)["streams"][0]
+        for key in ("avg_frame_rate", "r_frame_rate"):
+            num, _, den = st.get(key, "").partition("/")
+            if num and den and float(den) != 0:
+                fps = float(num) / float(den)
+                if fps > 0:
+                    return fps
+    except Exception as e:
+        print(f"[fps] 検出できず: {e}")
+    return None
+
+
 def _gvhmr_joints(video_bytes: bytes, name: str):
     """GVHMR を実行し、24関節(F,24,3 world座標[m])とレンダ動画を返す。
 
@@ -137,6 +169,9 @@ def _gvhmr_joints(video_bytes: bytes, name: str):
     src = f"inputs/{stem}.mp4"
     with open(src, "wb") as f:
         f.write(video_bytes)
+
+    video_fps = _probe_fps(src)
+    print(f"[fps] 動画から検出: {video_fps}")
 
     subprocess.run(
         ["python", "tools/demo/demo.py", f"--video={src}", "-s"],
@@ -177,7 +212,7 @@ def _gvhmr_joints(video_bytes: bytes, name: str):
     # T4 は $0.000164/秒（modal.com/pricing）。コンテナ起動分は別途上乗せ。
     print(f"joints {joints.shape}  pose {{{', '.join(f'{k}:{tuple(v.shape)}' for k, v in pose.items())}}}")
     print(f"[TIMING] {elapsed:.1f}s ≒ ${elapsed * 0.000164:.4f} (T4, 起動分は別)")
-    return joints, pose, renders
+    return joints, pose, renders, video_fps
 
 
 @app.function(image=image, gpu="T4", volumes={ASSETS: vol}, timeout=900)
@@ -187,14 +222,15 @@ def reconstruct(video_bytes: bytes, name: str) -> dict:
 
     import numpy as np
 
-    joints, pose, renders = _gvhmr_joints(video_bytes, name)
+    joints, pose, renders, video_fps = _gvhmr_joints(video_bytes, name)
 
     jbuf = io.BytesIO()
     np.save(jbuf, joints)
     pbuf = io.BytesIO()
     np.savez(pbuf, **pose)  # アバター用の回転（issue #5）
     return {"gv_joints.npy": jbuf.getvalue(),
-            "gv_pose.npz": pbuf.getvalue(), **renders}
+            "gv_pose.npz": pbuf.getvalue(),
+            "_fps": str(video_fps or ""), **renders}
 
 
 @app.function(image=image, gpu="T4", volumes={ASSETS: vol}, timeout=900)
@@ -209,8 +245,14 @@ def run_job(video_bytes: bytes, name: str, fps: float) -> dict:
 
     import analysis
 
-    joints, pose, renders = _gvhmr_joints(video_bytes, name)
-    res = analysis.analyze_json(joints, fps)
+    joints, pose, renders, video_fps = _gvhmr_joints(video_bytes, name)
+    # 申告 fps より、動画から読めた値を優先する（取り違えを防ぐ）。
+    # ただしスローモーション動画では実撮影レートの方が高いため、
+    # 申告値が検出値より大きい場合は申告を尊重する。
+    used = float(fps) if (video_fps is None or float(fps) > video_fps + 1) else video_fps
+    res = analysis.analyze_json(joints, used)
+    res["video_fps"] = video_fps
+    res["fps_used"] = used
 
     # 回転はアバター表示専用。analysis（指標）は関節位置のみで完結させる。
     res["pose"] = {k: v.round(5).tolist() for k, v in pose.items()}
@@ -286,8 +328,15 @@ def main(video: str, out: str = "."):
 
     out_dir = Path(out)
     out_dir.mkdir(parents=True, exist_ok=True)
+    detected = results.pop("_fps", "")
     for fname, content in results.items():
         (out_dir / fname).write_bytes(content)
         print(f"✅ {out_dir / fname} ({len(content) / 1e6:.1f} MB)")
+
+    fps = f"{float(detected):.0f}" if detected else "<実fps>"
+    if detected:
+        print(f"\n[fps] 動画から検出: {float(detected):.2f}")
+        print("      スローモーションとして保存された動画なら、実際の撮影レートは"
+              "これより高い。その場合は手で指定すること。")
     print(f"→ 次: python -m analysis --joints {out_dir}/gv_joints.npy "
-          f"--fps <実fps> --save {out_dir}")
+          f"--fps {fps} --save {out_dir}")

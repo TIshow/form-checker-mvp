@@ -87,6 +87,7 @@
         <h3 style="margin-top:0">改善ポイント</h3>
         <div id="feedback"></div>
         <div id="fpsWarn" class="warn hidden"></div>
+        <div id="fpsNote" class="note hidden"></div>
       </div>
       <div class="card">
         <h3 style="margin-top:0">主要数値</h3>
@@ -215,9 +216,20 @@ function render(result, fps){
                   `<div class="c">→ ${f.cue||""}</div>`;
     fb.appendChild(d);
   }
+  // 動画から読めた fps と申告値が食い違ったら、黙って上書きせず知らせる
+  const noteEl = $("fpsNote");
+  if(result.video_fps && Math.abs(result.video_fps - fps) > 1){
+    noteEl.classList.remove("hidden");
+    noteEl.textContent = `ℹ️ 申告は ${fps}fps でしたが、動画から `
+      + `${result.video_fps.toFixed(2)}fps を検出したのでそちらで解析しました。`
+      + `スローモーションとして保存された動画なら実際の撮影レートはさらに高いので、`
+      + `その場合は手で指定してください。`;
+  } else { noteEl.classList.add("hidden"); }
+
+  const usedFps = result.fps_used || fps;
   const warn = $("fpsWarn");
-  if(fps < 60){ warn.classList.remove("hidden");
-    warn.textContent = "⚠️ 力の伝達順序（キネティックチェーン）は "+fps+
+  if(usedFps < 60){ warn.classList.remove("hidden");
+    warn.textContent = "⚠️ 力の伝達順序（キネティックチェーン）は "+usedFps.toFixed(0)+
       "fps では判定できません。120fps以上で撮ると評価できます。"; }
   else warn.classList.add("hidden");
 

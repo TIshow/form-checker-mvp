@@ -5,7 +5,7 @@
 > 通常はこちらを使う:
 > ```bash
 > modal run backend/reconstruct.py --video temp_my_serve.mp4
-> python -m analysis --joints gv_joints.npy --fps 30 --save output
+> python -m analysis --joints gv_joints.npy --fps 60 --save output
 > ```
 > 以下は「Colabでどう動かしたか」の歴史的記録として残す。Modal のイメージ定義は
 > このノートで確定したレシピを焼いたものなので、環境の詳細を追う際の参照になる。
@@ -66,7 +66,7 @@ SMPL-X で推論 → smplx2smpl で SMPL頂点へ変換 → J_regressor で24関
 | 重心の高さ範囲 | 0.890 – 1.120 m |
 | 沈み込み（トロフィーポーズ） | frame 87 / 0.953 m |
 | **打点（実際の接球と一致）** | **frame 103 / 1.120 m** |
-| 伸び上がり | +0.167 m / 0.53 秒 |
+| 伸び上がり | +0.167 m / **0.28 秒** |
 | 水平移動 | 1.174 m |
 
 重心の絶対高さが身長の約55%という解剖学的に妥当な値に収まり、
