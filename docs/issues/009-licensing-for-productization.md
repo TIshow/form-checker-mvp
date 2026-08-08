@@ -47,7 +47,58 @@ SMPL は商用製品・サービスへの組み込みを明示的に禁止し、
 - GVHMR は「改変物はオープンソースでなければならない」— 自前の改造を
   クローズドにできない
 
+## ★ 有力な回避策: NVIDIA GEM-X + SOMA（2026-08-08 判明）
+
+[NVlabs/GEM-X](https://github.com/NVlabs/GEM-X) は、**GVHMR・SMPL・YOLOv8 の3つを
+まとめて置き換えられる**可能性がある。全部が商用可能なライセンスで揃っている。
+
+| | 現行 | GEM-X |
+|---|---|---|
+| 3D復元 | GVHMR（非商用） | GEM-X コード **Apache-2.0** |
+| 重み | — | **NVIDIA Open Model License**（"Models are commercially usable"） |
+| 人体モデル | SMPL（非商用） | **SOMA**（NVIDIA独自・77関節） |
+| 人物検出 | YOLOv8（AGPL） | **YOLOX**（Apache-2.0）+ ByteTrack（MIT） |
+| 2D関節 | ViTPose | **同梱**（SOMA 77点用。自己完結） |
+| 学習データ | — | **"trained on NVIDIA-owned data only"** |
+
+依存の第三者ライセンスを全部見たが、**非商用・GPL・Max Planck 由来のものは無い**:
+guided-diffusion (MIT) / PyTorch3D・ACTOR (BSD-3・MIT) / YOLOX (Apache-2.0) /
+ByteTrack (MIT) / SAM 3D Body (Meta SAM License — royalty-free で商用可、
+ただし再配布時の条項と輸出規制の遵守義務あり)。
+
+SOMA 本体も Apache-2.0。README は SMPL モデルファイルについて
+「別ライセンスであり同梱できない」と明記しているが、これは **SMPL 相互変換を
+使う場合だけ**の話。SOMA 単体で使うなら SMPL は要らない。
+
+### さらに: issue 008 にも効くかもしれない
+
+GEM-X は "handles **dynamic cameras** and recovers **global motion trajectories**"
+と明記している。[008](008-moving-camera-slam.md) のカメラ運動問題が、
+手法の乗り換えで一緒に解ける可能性がある。
+
+### 確かめていないこと（ここが本番）
+
+ライセンスは確認済みだが、**使えるかどうかは別**。評価が要る。
+
+1. **跳躍を再現するか。** 008 の核心。GVHMR は潰していた。同じ2本
+   （自分のサーブ / Zverev）で比べれば一発で分かる
+2. **精度が足りるか。** 膝・肘・体幹の角度が GVHMR と同等以上か
+3. **手が使えるか。** 77関節に手が入っている。テニスならグリップや
+   手首の使い方に直結する（[006](006-racket-tracking.md) のラケット追跡にも効く）
+4. **移行コスト。** `analysis/serve.py` も `web/avatar.js` も **SMPL の24関節前提**。
+   SOMA 77関節への対応表を作る作業が要る
+5. **計算資源。** Modal のイメージを作り直すことになる
+
+### 評価の進め方
+
+Modal に GEM-X のイメージを立て、既存の2クリップを流す。判断材料は
+「跳躍が出るか」と「関節角が妥当か」の2つで足りる。ここが通れば、
+下の交渉（GVHMR / SMPL）はどちらも不要になる。
+
 ## 進め方（順番が大事）
+
+**GEM-X の評価を最優先にする。** 通れば以下の交渉は全部不要になり、
+通らなければ以下に戻る。
 
 ### 1. GVHMR の商用可否を先に当たる（最優先・費用ゼロ）
 `xwzhou@zju.edu.cn` に照会する。**ここが一番読めない**（大学研究室の裁量で、
