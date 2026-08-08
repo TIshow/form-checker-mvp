@@ -1,0 +1,289 @@
+<meta charset="utf-8" />
+<title>復元手法の比較 — GVHMR / GEM-X / TRAM</title>
+<style>
+  :root { --bg:#0b0e12; --card:#141a22; --line:#232b36; --fg:#e6edf5;
+          --mute:#93a1b3; --warn:#fcd9a0; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.65 -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  main { max-width:1280px; margin:0 auto; padding:20px 18px 60px; }
+  h1 { font-size:20px; margin:0 0 4px; font-weight:600; }
+  .sub { color:var(--mute); font-size:13px; margin:0 0 18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:14px; margin-bottom:16px; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  button, select { background:#1c2632; color:var(--fg); border:1px solid var(--line);
+           border-radius:8px; padding:7px 13px; font-size:14px; cursor:pointer; }
+  button.on { background:#2563eb; border-color:#2563eb; }
+  input[type=range] { flex:1; min-width:260px; accent-color:#2563eb; }
+  #panes { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .pane h4 { margin:0 0 6px; font-size:14px; font-weight:600;
+             display:flex; align-items:center; gap:7px; }
+  .tag { width:11px; height:11px; border-radius:3px; display:inline-block; }
+  .view { width:100%; height:400px; background:#080b0f;
+          border:1px solid var(--line); border-radius:8px; }
+  .meta { color:var(--mute); font-size:12px; margin-top:5px; font-variant-numeric:tabular-nums; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { padding:7px 9px; border-bottom:1px solid var(--line); text-align:left;
+           font-variant-numeric:tabular-nums; }
+  th { color:var(--mute); font-weight:500; }
+  td.best { color:#4ade80; font-weight:600; }
+  .note { color:var(--mute); font-size:13px; margin-top:10px; }
+  .warn { background:#2a1f14; border:1px solid #7c5a1e; color:var(--warn);
+          border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:14px; }
+  @media (max-width:900px) { #panes { grid-template-columns:1fr; } }
+</style>
+
+<main>
+  <h1>復元手法の比較</h1>
+  <p class="sub" id="sub">読み込み中…</p>
+
+  <div class="warn">
+    同じ動画を3つの手法で復元した結果です。人物も撮影も同一なので、
+    <b>見えている差はすべて復元手法の差</b>です。
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button id="play">▶ 再生</button>
+      <label>速さ
+        <select id="speed">
+          <option value="1">等倍</option>
+          <option value="0.25">1/4</option>
+          <option value="0.1" selected>1/10</option>
+        </select>
+      </label>
+      <input type="range" id="scrub" min="0" value="0" />
+      <button id="camBtn" class="on">🎥 視点を同期</button>
+    </div>
+    <div class="meta" id="meta"></div>
+
+    <div id="panes" style="margin-top:11px"></div>
+    <p class="note">
+      オレンジ＝沈み込み、赤＝打点。手法ごとに検出フレームが1〜2ずれます。
+    </p>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:16px; margin-bottom:10px">指標</h1>
+    <table id="metrics"></table>
+    <p class="note" id="dropNote"></p>
+  </div>
+</main>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const $ = (id) => document.getElementById(id);
+
+const BONES = [[1,0],[2,0],[3,0],[4,1],[5,2],[6,3],[7,4],[8,5],[9,6],[10,7],
+  [11,8],[12,9],[13,9],[14,9],[15,12],[16,13],[17,14],[18,16],[19,17],
+  [20,18],[21,19],[22,20],[23,21]];
+const FOOT_IDS = [7, 8, 10, 11];
+const L_HIP = 1, R_HIP = 2;
+const COLORS = [0x60a5fa, 0xf472b6, 0x4ade80, 0xfbbf24];
+
+/**
+ * 表示座標へ直す。compare.html と同じ考え方:
+ *   1. up軸を +Y に
+ *   2. 腰の左→右を +X に回して向きを揃える
+ *   3. 足元を床(0)に。基準は最低値ではなく中央値
+ * 3つ目が特に効く。手法によって世界座標の原点の置き方が違い、
+ * TRAM は床を 0 に置かない（同じ動画で頭が GVHMR +1.4m / TRAM -0.2m）。
+ */
+function toDisplay(clip) {
+  const [ax, sg] = clip.up_axis;
+  const hz = [0, 1, 2].filter(k => k !== ax);
+  const d = clip.joints.map(fr => fr.map(p => [p[hz[0]], p[ax] * sg, p[hz[1]]]));
+
+  let rx = 0, rz = 0;
+  for (const fr of d) { rx += fr[R_HIP][0] - fr[L_HIP][0]; rz += fr[R_HIP][2] - fr[L_HIP][2]; }
+  const ang = Math.atan2(rz, rx), ca = Math.cos(-ang), sa = Math.sin(-ang);
+  for (const fr of d) for (const p of fr) {
+    const x = p[0], z = p[2];
+    p[0] = x * ca - z * sa; p[2] = x * sa + z * ca;
+  }
+
+  const lows = d.map(fr => Math.min(...FOOT_IDS.map(i => fr[i][1]))).sort((a, b) => a - b);
+  const ground = lows[Math.floor(lows.length / 2)];
+  let sx = 0, sz = 0;
+  for (const fr of d) { sx += fr[0][0]; sz += fr[0][2]; }
+  const cx = sx / d.length, cz = sz / d.length;
+  for (const fr of d) for (const p of fr) { p[0] -= cx; p[1] -= ground; p[2] -= cz; }
+  return d;
+}
+
+function makePane(host, clip, color) {
+  const size = () => [host.clientWidth || 380, host.clientHeight || 400];
+  let [W, H] = size();
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(42, W / H, 0.01, 100);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(W, H); renderer.setPixelRatio(devicePixelRatio);
+  host.appendChild(renderer.domElement);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  camera.position.set(2.6, 1.2, 2.6); controls.target.set(0, 0.9, 0);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+  scene.add(new THREE.GridHelper(4, 8, 0x333a44, 0x222831));
+
+  const disp = toDisplay(clip);
+  const J = disp[0].length;
+  const boneGeom = new THREE.BufferGeometry();
+  const bonePos = new Float32Array(BONES.length * 2 * 3);
+  boneGeom.setAttribute("position", new THREE.BufferAttribute(bonePos, 3));
+  scene.add(new THREE.LineSegments(boneGeom,
+    new THREE.LineBasicMaterial({ color: 0x9db2cc })));
+  const spheres = [];
+  for (let j = 0; j < J; j++) {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.023, 10, 10),
+      new THREE.MeshBasicMaterial({ color }));
+    scene.add(s); spheres.push(s);
+  }
+
+  function setFrame(f) {
+    const fr = disp[Math.max(0, Math.min(disp.length - 1, f))];
+    for (let j = 0; j < J; j++) spheres[j].position.set(...fr[j]);
+    let k = 0;
+    for (const [a, b] of BONES) {
+      bonePos[k++] = fr[a][0]; bonePos[k++] = fr[a][1]; bonePos[k++] = fr[a][2];
+      bonePos[k++] = fr[b][0]; bonePos[k++] = fr[b][1]; bonePos[k++] = fr[b][2];
+    }
+    boneGeom.attributes.position.needsUpdate = true;
+    const ph = clip.metrics.phases, near = (a, b) => Math.abs(a - b) <= 1;
+    const col = near(f, ph.contact) ? 0xef4444
+              : near(f, ph.loading) ? 0xf59e0b : color;
+    for (const s of spheres) s.material.color.setHex(col);
+  }
+
+  function syncSize() {
+    const [w, h] = size();
+    if (w === W && h === H) return;
+    [W, H] = [w, h];
+    camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
+  }
+
+  return { clip, camera, controls, frames: disp.length, setFrame,
+           render: () => { syncSize(); controls.update(); renderer.render(scene, camera); } };
+}
+
+const ROWS = [
+  ["沈み込み → 打点", c => `${c.metrics.phases.loading} → ${c.metrics.phases.contact}`, null],
+  ["駆動時間", c => (c.metrics.phases.contact - c.metrics.phases.loading) / c.fps,
+   v => `${v.toFixed(2)} 秒`],
+  ["ラケットドロップ", c => c.racket_drop.max_deg, v => `${v.toFixed(1)}°`, "max"],
+  ["跳躍（足の浮き）", c => c.foot_clearance.max_cm, v => `${v >= 0 ? "+" : ""}${v.toFixed(1)} cm`],
+  ["沈み込み膝角", c => c.metrics.min_knee_deg_overall, v => `${v.toFixed(0)}°`],
+  ["打点の肘角", c => c.metrics.elbow_at_contact_deg, v => `${v.toFixed(0)}°`],
+  ["打点の体幹", c => c.metrics.trunk_lean_at_contact_deg, v => `${v.toFixed(0)}°`],
+  ["打点の高さ（床から）", c => c.metrics.contact_height_m, v => `${v.toFixed(2)} m`],
+  ["重心の伸び上がり", c => c.metrics.com_rise_m * 100, v => `${v.toFixed(1)} cm`],
+];
+
+function metricsTable(clips) {
+  const head = `<tr><th>指標</th>${clips.map((c, i) =>
+    `<th style="color:#${COLORS[i].toString(16).padStart(6, "0")}">${c.label}</th>`).join("")}</tr>`;
+  const body = ROWS.map(([name, get, fmt, best]) => {
+    const vals = clips.map(get);
+    let bestIdx = -1;
+    if (best === "max") bestIdx = vals.indexOf(Math.max(...vals));
+    const tds = vals.map((v, i) =>
+      `<td class="${i === bestIdx ? "best" : ""}">${fmt ? fmt(v) : v}</td>`).join("");
+    return `<tr><td>${name}</td>${tds}</tr>`;
+  }).join("");
+  $("metrics").innerHTML = head + body;
+}
+
+async function main() {
+  let clips;
+  try {
+    clips = await (await fetch("data/models.json")).json();
+  } catch (e) {
+    $("sub").textContent = "data/models.json を読めません。tools/make_models.py で生成してください。";
+    return;
+  }
+  const n = clips[0].metrics.n_frames;
+  $("sub").textContent =
+    `同じ動画（${n}フレーム @${clips[0].fps.toFixed(0)}fps）を ${clips.length} 手法で復元`;
+
+  const host = $("panes");
+  const panes = clips.map((c, i) => {
+    const div = document.createElement("div");
+    div.className = "pane";
+    div.innerHTML = `<h4><span class="tag" style="background:#${COLORS[i].toString(16).padStart(6, "0")}"></span>${c.label}</h4>`;
+    const view = document.createElement("div");
+    view.className = "view";
+    div.appendChild(view);
+    host.appendChild(div);
+    return makePane(view, c, COLORS[i]);
+  });
+
+  window.__models = { panes, clips };   // ローカル検証用
+  metricsTable(clips);
+  const d = clips.map(c => `${c.label} ${c.racket_drop.max_deg.toFixed(0)}°`).join(" / ");
+  $("dropNote").innerHTML =
+    "<b>ラケットドロップ</b>は、手首→手の向きが鉛直から倒れる角度の最大値です"
+    + "（手の向きがラケットのシャフト方向の近似）。打点前に背中側へ落ち込み、"
+    + `そこから振り抜くのがサーブの形。実測 ${d}。`
+    + "この順位は目視での再現度の評価と一致しました。";
+
+  const scrub = $("scrub"), play = $("play");
+  scrub.max = String(Math.min(...panes.map(p => p.frames)) - 1);
+  let f = clips[0].metrics.phases.loading, playing = false;
+  let speed = parseFloat($("speed").value);
+  $("speed").onchange = () => { speed = parseFloat($("speed").value); };
+
+  function apply(v) {
+    f = Math.max(0, Math.min(parseInt(scrub.max), Math.round(v)));
+    scrub.value = String(f);
+    for (const p of panes) p.setFrame(f);
+    $("meta").textContent = `frame ${f} / ${scrub.max}　${(f / clips[0].fps).toFixed(2)}s　`
+      + clips.map(c => {
+          const ph = c.metrics.phases;
+          return f === ph.contact ? `${c.label}=打点`
+               : f === ph.loading ? `${c.label}=沈み込み` : null;
+        }).filter(Boolean).join("　");
+  }
+  scrub.oninput = () => { playing = false; play.textContent = "▶ 再生"; apply(scrub.value); };
+  play.onclick = () => { playing = !playing; play.textContent = playing ? "⏸ 停止" : "▶ 再生"; };
+  apply(f);
+
+  // 視点の同期。3つ同時に見るので、揃っていないと形の違いが分からない
+  let camSync = true, syncing = false;
+  panes.forEach(src => src.controls.addEventListener("change", () => {
+    if (!camSync || syncing) return;
+    syncing = true;
+    for (const dst of panes) {
+      if (dst === src) continue;
+      dst.camera.position.copy(src.camera.position);
+      dst.controls.target.copy(src.controls.target);
+    }
+    syncing = false;
+  }));
+  $("camBtn").onclick = () => {
+    camSync = !camSync;
+    $("camBtn").classList.toggle("on", camSync);
+    $("camBtn").textContent = camSync ? "🎥 視点を同期" : "🎥 個別の視点";
+  };
+
+  let prev = 0, acc = 0;
+  function loop(now) {
+    const dt = Math.min((now - prev) / 1000, 0.1); prev = now;
+    if (playing) {
+      acc += dt * clips[0].fps * speed;
+      if (acc >= 1) { const s = Math.floor(acc); acc -= s; apply((f + s) % (panes[0].frames)); }
+    }
+    for (const p of panes) p.render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+}
+
+main();
+</script>
