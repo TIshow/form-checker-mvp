@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -33,6 +34,29 @@ from analysis.serve import (  # noqa: E402
 # GEM-X は analysis/soma.py で SMPL の24関節順に並べ替え済み、TRAM は
 # 元から24関節なので、ここから下流は手法を意識しなくてよい。
 PREFIXES = ("gv_", "gx_", "tr_")
+
+
+def sanitize(obj) -> tuple[object, list[str]]:
+    """NaN / Inf を null に置き換え、(整えた値, 見つけた場所) を返す。
+
+    Python の json.dumps は既定で `NaN` と書くが、これは JSON の仕様に無く、
+    ブラウザの JSON.parse が `Unexpected token 'N'` で落ちる。
+    数値が出せなかったこと自体は情報なので、黙って消さずに null にして、
+    どのキーだったかを報告する。
+    """
+    found: list[str] = []
+
+    def walk(o, path: str):
+        if isinstance(o, dict):
+            return {k: walk(v, f"{path}.{k}" if path else k) for k, v in o.items()}
+        if isinstance(o, list):
+            return [walk(v, f"{path}[{i}]") for i, v in enumerate(o)]
+        if isinstance(o, float) and (math.isnan(o) or math.isinf(o)):
+            found.append(path or "(root)")
+            return None
+        return o
+
+    return walk(obj, ""), found
 
 
 def _pick(d: Path, suffix: str, required: bool = True) -> Path | None:
@@ -129,12 +153,17 @@ def main() -> None:
     ]:
         b = bundle(src, fps, label, video, trim)
         path = out / f"{key}.json"
-        path.write_text(json.dumps(b, ensure_ascii=False), encoding="utf-8")
+        clean, nans = sanitize(b)
+        # allow_nan=False にして、取りこぼしがあればここで気付けるようにする
+        path.write_text(json.dumps(clean, ensure_ascii=False, allow_nan=False),
+                        encoding="utf-8")
         ph = b["metrics"]["phases"]
         size = path.stat().st_size / 1e6
         print(f"✅ {path}  ({size:.1f} MB)  {label}: "
               f"{b['metrics']['n_frames']}フレーム @{fps:.0f}fps  "
               f"沈み込み{ph['loading']} → 打点{ph['contact']}")
+        if nans:
+            print(f"   ℹ️ 数値が出せず null にした項目: {', '.join(nans)}")
         for msg in b["quality"]["issues"]:
             print(f"   ⚠️ {msg.replace('**', '')}")   # 強調記法は UI 側で解釈する
 

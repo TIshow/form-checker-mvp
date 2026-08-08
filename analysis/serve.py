@@ -29,6 +29,9 @@ L_ELBOW, R_ELBOW = 18, 19
 L_WRIST, R_WRIST = 20, 21
 L_HAND, R_HAND = 22, 23
 
+# 接地の判定に使う「足まわり」。足首とつま先の4点。
+FOOT_IDS = [L_ANKLE, R_ANKLE, L_FOOT, R_FOOT]
+
 # --------------------------------------------------------------------------
 # 計測上の定数
 #
@@ -199,9 +202,17 @@ class ServeKinematics:
         )
 
     def body_height_proxy(self) -> float:
-        """立位の頭の高さ。打点の高さを体格で正規化するために使う。"""
-        head_h = self.height(self.J[:, HEAD])
-        return float(np.median(head_h[: max(1, self.F // 3)]))
+        """立位の頭〜足の距離。打点の高さを体格で正規化するために使う。
+
+        頭の絶対高さではなく**足からの差**を採る。復元手法によって世界座標の
+        原点の置き方が違うため。GVHMR は床を y≈0 に置くが、TRAM は置かない
+        （同じ動画で頭が GVHMR +1.4m に対し TRAM −0.2m。身長はどちらも約1.44m）。
+        絶対高さのままだと符号が負になり、正規化した指標が NaN になる。
+        """
+        n = max(1, self.F // 3)
+        head_h = self.height(self.J[:, HEAD])[:n]
+        foot_h = self.height(self.J[:, FOOT_IDS])[:n].min(axis=1)
+        return float(np.median(head_h - foot_h))
 
     # -- キネティックチェーン ----------------------------------------------
     def kinetic_chain(self, loading: int, contact: int) -> list[dict]:
@@ -251,8 +262,13 @@ def compute_metrics(kin: ServeKinematics) -> dict:
     fps = kin.fps
 
     knee = kin.knee_angles()
-    wrist_h = kin.height(kin.J[:, kin.idx("wrist")])
     body_h = kin.body_height_proxy()
+    # 高さは**床から**測る。世界座標の原点の置き方は復元手法ごとに違い、
+    # GVHMR は床を y≈0 に置くが TRAM は置かない。原点からの絶対値だと
+    # 同じ動画で打点の高さが 2.00m と 0.48m になり、比較にならない。
+    # 床は「最も低い足の中央値」。最低値だと一度の沈み込みが床になる。
+    ground = float(np.median(kin.height(kin.J[:, FOOT_IDS]).min(axis=1)))
+    wrist_h = kin.height(kin.J[:, kin.idx("wrist")]) - ground
 
     return {
         "racket_side": kin.racket_side,
