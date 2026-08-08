@@ -3,7 +3,7 @@
 
     python tools/make_compare.py \
         --mine output --mine-fps 60 \
-        --ref  output_zverev --ref-fps 30 \
+        --ref  output_zverev2 --ref-fps 240 \
         --out  web/data
 
 各クリップについて、指標・フェーズ・関節列・回転を1つのJSONにまとめる。

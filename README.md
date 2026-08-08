@@ -97,17 +97,36 @@
 
 ```
 REDESIGN.md    設計方針・技術選定・ロードマップ
-backend/       3D復元（GVHMR）を Modal のサーバーレスGPUで実行
+backend/       3D復元を Modal のサーバーレスGPUで実行。3系統が並行して動く
+  reconstruct.py       GVHMR  — 本番。品質は最良だが非商用ライセンス
+  reconstruct_gemx.py  GEM-X  — 商用可だが動作の再現が不足（評価済み）
+  reconstruct_tram.py  TRAM   — 商用可だが動作の再現が不足（評価済み）
 analysis/      指標算出とフィードバック生成（純numpy / GPU不要）
   serve.py       計測  — 幾何・運動学・指標
   feedback.py    判定  — ルールと閾値
   report.py      表示
+  soma.py        GEM-X の SOMA 77関節 → SMPL 24関節への並べ替え
+web/           ブラウザで見る（配信は web/devserver.py）
+  index.html     単体解析 — 動画を投げて結果を見る
+  compare.html   二画面   — 2本の動画を見比べる（自分 vs お手本）
+  models.html    三画面   — 1本を複数の復元手法で見比べる（報告用）
+  skeleton.js    3D骨格の表示。compare/models が共有
+  avatar.js      VRMへのリターゲット
 tests/         合成サーブデータによる検証
 tools/         補助スクリプト
-  videoinfo.py   動画の実fps（コンテナ上の再生レート）を読む
-  estimate_fps.py 空中の重心の落ち方から実fpsを推定（スロー動画用）
+  videoinfo.py     動画の実fps（コンテナ上の再生レート）を読む
+  estimate_fps.py  空中の重心の落ち方から実fpsを推定（スロー動画用）
+  camera_motion.py カメラが動いていないか（動くと世界座標が壊れる）
+  make_compare.py  compare.html 用のデータ生成
+  make_models.py   models.html 用のデータ生成
+  compare_backends.py 復元手法を同じ物差しで比べる
 notebooks/     P0検証時の Colab 手順（記録・非推奨）
 ```
+
+復元手法が3系統あるのは、**GVHMR が非商用ライセンス**で製品化できないため。
+商用可能な代替を2つ評価したが、どちらもサーブの動作を再現しきれなかった
+（[issue 009](docs/issues/009-licensing-for-productization.md)）。
+GVHMR が本番で、他の2つは比較の記録として残してある。
 
 3D復元は GPU が要るため Modal 上で実行して**24関節**を返し、その関節から
 `analysis/` が重心・角度・フィードバックを導出する、という分業になっている。

@@ -47,7 +47,7 @@ python web/devserver.py
 ```bash
 python tools/make_compare.py \
     --mine output          --mine-fps 60 --mine-label "あなた" \
-    --ref  output_zverev   --ref-fps  30 --ref-label  "お手本" \
+    --ref  output_zverev2  --ref-fps 240 --ref-label  "お手本" \
     --out  web/data
 python web/devserver.py   # → http://127.0.0.1:8123/compare.html
 ```
@@ -60,6 +60,44 @@ python web/devserver.py   # → http://127.0.0.1:8123/compare.html
 - オレンジ=沈み込み、赤=打点
 - 復元が壊れている素材は警告を出す（接地していない・フェーズが検出できない）。
   素材の問題を解析の結果と取り違えないため
+
+## `models.html` — 復元手法を見比べる（issue #9）
+
+**同じ動画**を複数の手法（GVHMR / GEM-X / TRAM）で復元した結果を三画面で並べる。
+`compare.html` と用途が違うので別ページにしてある:
+
+|  | `compare.html` | `models.html` |
+|---|---|---|
+| 比べる対象 | 2本の動画 | 1本の動画 × 複数の手法 |
+| 時間軸 | 別々（fpsも尺も違う） | 共通（同じ動画なので） |
+| スライダー | 画面ごとに独立 | 1本で全部動く |
+| 体格差 | あるのでアバターで消す | 無い（同一人物） |
+
+指標表には**ラケットドロップ**を載せて強調している。手首→手の向きが鉛直から
+倒れる角度で、3手法での順位が目視評価の順位と一致した唯一の指標だった
+（GVHMR 116° > TRAM 72° ≒ GEM-X 72°）。腕の高さや肘角はむしろ逆の順位を示す。
+
+```bash
+python tools/make_models.py \
+  --clip GVHMR=output --clip GEM-X=output_gemx_mine --clip TRAM=output_tram_mine \
+  --fps 60 --out web/data/models.json
+```
+
+## `skeleton.js` — 3D骨格の表示（共有）
+
+`compare.html` と `models.html` が共有する。復元結果を見られる形に直す部分だけを
+持ち、ページ固有のUI（再生・同期・アバター・描き込み）は各ページに置いてある。
+
+`toDisplay()` が揃える3つが要点:
+
+1. up軸を +Y に
+2. **体の向きを揃える** — 揃えないと2本並べたとき片方が背中向きになる（実測187°差）
+3. **足元を床に。基準は最低値ではなく中央値** — 最低値だと一度の沈み込みが床になり、
+   さらに世界座標の原点の置き方は手法ごとに違う（GVHMR は床を y≈0 に置くが TRAM は置かない）
+
+`createPane()` が `renderer.setSize(w, h, false)` を使うのも重要で、`true` だと
+three がキャンバスに px 幅を書き込み、それがグリッド列を押し広げ、次のフレームで
+さらに広がる増幅ループになる。表示サイズはCSSに任せる。
 
 ## アバター（`avatar.js`）
 

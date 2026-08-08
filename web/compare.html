@@ -142,55 +142,11 @@
 </script>
 <script type="module">
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { createAvatar } from "./avatar.js";
+import { createPane, linkCameras } from "./skeleton.js";
 
 const $ = (id) => document.getElementById(id);
 const AVATAR = "avatar/avatar.vrm";
-
-/** SMPL 24関節の骨（子, 親） */
-const BONES = [[1,0],[2,0],[3,0],[4,1],[5,2],[6,3],[7,4],[8,5],[9,6],[10,7],
-  [11,8],[12,9],[13,9],[14,9],[15,12],[16,13],[17,14],[18,16],[19,17],
-  [20,18],[21,19],[22,20],[23,21]];
-const FOOT_IDS = [7, 8, 10, 11];
-const L_HIP = 1, R_HIP = 2;
-
-/**
- * 表示座標へ直す。比較のために3つ揃える:
- *   1. up軸を +Y に
- *   2. 体の向きを揃える（腰の左→右を +X に回す）。揃えないと片方が背中向きになる
- *   3. 足元を床(0)に。基準は最低値ではなく**中央値**を使う。
- *      最低値だとクリップ中に1度でも沈んだ瞬間が基準になり、
- *      復元がドリフトしていると開始時点で体が宙に浮いて見える。
- */
-function toDisplay(clip) {
-  const [ax, sg] = clip.up_axis;
-  const hz = [0, 1, 2].filter(k => k !== ax);
-  const d = clip.joints.map(fr => fr.map(p => [p[hz[0]], p[ax] * sg, p[hz[1]]]));
-
-  // --- 向きを揃える ---
-  let rx = 0, rz = 0;
-  for (const fr of d) {
-    rx += fr[R_HIP][0] - fr[L_HIP][0];
-    rz += fr[R_HIP][2] - fr[L_HIP][2];
-  }
-  const ang = Math.atan2(rz, rx);          // 現在の「右」方向
-  const ca = Math.cos(-ang), sa = Math.sin(-ang);
-  for (const fr of d) for (const p of fr) {
-    const x = p[0], z = p[2];
-    p[0] = x * ca - z * sa;
-    p[2] = x * sa + z * ca;
-  }
-
-  // --- 足元と水平位置 ---
-  const lows = d.map(fr => Math.min(...FOOT_IDS.map(i => fr[i][1]))).sort((a, b) => a - b);
-  const ground = lows[Math.floor(lows.length / 2)];   // 中央値
-  let sx = 0, sz = 0;
-  for (const fr of d) { sx += fr[0][0]; sz += fr[0][2]; }
-  const cx = sx / d.length, cz = sz / d.length;
-  for (const fr of d) for (const p of fr) { p[0] -= cx; p[1] -= ground; p[2] -= cz; }
-  return d;
-}
 
 /** 局面（沈み込み=0、打点=1）と、そのクリップのフレームを相互に変換する */
 function phaseOf(clip, f) {
@@ -207,84 +163,27 @@ function frameOfPhase(clip, t) {
   return Math.max(0, Math.min(N - 1, f));
 }
 
-/** 1画面ぶん。骨格が主役、アバターは任意。 */
+/** 共有の骨格ビューに、このページだけで使うアバターを足す。 */
 function makePane(hostId, clip, color) {
-  const host = $(hostId);
-  const size = () => [host.clientWidth || 560, host.clientHeight || 430];
-  let [W, H] = size();
-
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(42, W / H, 0.01, 100);
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(W, H, false); renderer.setPixelRatio(devicePixelRatio);
-  host.appendChild(renderer.domElement);
-  const controls = new OrbitControls(camera, renderer.domElement);
-  camera.position.set(2.6, 1.2, 2.6); controls.target.set(0, 0.9, 0);
-
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
-  const key = new THREE.DirectionalLight(0xffffff, 1.0);
-  key.position.set(2, 3, 2); scene.add(key);
-  scene.add(new THREE.GridHelper(4, 8, 0x333a44, 0x222831));
-
-  const disp = toDisplay(clip);
-  const J = disp[0].length;
-
-  const skel = new THREE.Group(); scene.add(skel);
-  const boneGeom = new THREE.BufferGeometry();
-  const bonePos = new Float32Array(BONES.length * 2 * 3);
-  boneGeom.setAttribute("position", new THREE.BufferAttribute(bonePos, 3));
-  skel.add(new THREE.LineSegments(boneGeom,
-    new THREE.LineBasicMaterial({ color: 0x9db2cc })));
-  const spheres = [];
-  for (let j = 0; j < J; j++) {
-    const s = new THREE.Mesh(new THREE.SphereGeometry(0.023, 10, 10),
-      new THREE.MeshBasicMaterial({ color }));
-    skel.add(s); spheres.push(s);
-  }
-
+  const pane = createPane($(hostId), clip, color);
   let avatar = null;
 
-  function setFrame(f) {
-    const fr = disp[f];
-    for (let j = 0; j < J; j++) spheres[j].position.set(...fr[j]);
-    let k = 0;
-    for (const [a, b] of BONES) {
-      bonePos[k++] = fr[a][0]; bonePos[k++] = fr[a][1]; bonePos[k++] = fr[a][2];
-      bonePos[k++] = fr[b][0]; bonePos[k++] = fr[b][1]; bonePos[k++] = fr[b][2];
-    }
-    boneGeom.attributes.position.needsUpdate = true;
-
-    // 局面の色。1フレームだけだと再生中に見逃すので前後1フレームまで含める。
-    const ph = clip.metrics.phases;
-    const near = (a, b) => Math.abs(a - b) <= 1;
-    const col = near(f, ph.contact) ? 0xef4444
-              : near(f, ph.loading) ? 0xf59e0b : color;
-    for (const s of spheres) s.material.color.setHex(col);
-
+  const setFrame = (f) => {
+    const fr = pane.setFrame(f);
     if (avatar) avatar.applyFrame(f, new THREE.Vector3(fr[0][0], fr[0][1], fr[0][2]));
-  }
-
-  function syncSize() {
-    const [w, h] = size();
-    if (w === W && h === H) return;
-    [W, H] = [w, h];
-    camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false);
-  }
+  };
 
   return {
-    clip, camera, controls, scene, frames: disp.length,
+    ...pane,
     setFrame,
-    render: (dt) => { syncSize(); controls.update();
-                      if (avatar) avatar.update(dt);
-                      renderer.render(scene, camera); },
+    render: (dt) => { if (avatar) avatar.update(dt); pane.render(); },
     async loadAvatar() {
       if (avatar || !clip.pose) return;
       avatar = await createAvatar(AVATAR, clip.joints, clip.pose);
       avatar.attachRacket(clip.metrics.racket_side === "L" ? "left" : "right");
-      scene.add(avatar.root); avatar.setVisible(false);
+      pane.scene.add(avatar.root); avatar.setVisible(false);
     },
-    setAvatar(on) { if (avatar) { avatar.setVisible(on); skel.visible = !on; } },
-    setOrbit(on) { controls.enabled = on; },
+    setAvatar(on) { if (avatar) { avatar.setVisible(on); pane.skel.visible = !on; } },
   };
 }
 
@@ -462,15 +361,8 @@ async function main() {
   };
 
   // ---- 視点の同期 ----
-  let camSync = true, syncing = false;
-  const linkCam = (src, dst) => src.controls.addEventListener("change", () => {
-    if (!camSync || syncing) return;
-    syncing = true;
-    dst.camera.position.copy(src.camera.position);
-    dst.controls.target.copy(src.controls.target);
-    syncing = false;
-  });
-  linkCam(pA, pB); linkCam(pB, pA);
+  let camSync = true;
+  linkCameras(panes, () => camSync);
   $("camBtn").onclick = () => {
     camSync = !camSync;
     $("camBtn").classList.toggle("on", camSync);

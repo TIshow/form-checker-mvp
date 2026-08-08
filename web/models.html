@@ -83,101 +83,10 @@
 } }
 </script>
 <script type="module">
-import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { createPane, linkCameras } from "./skeleton.js";
 
 const $ = (id) => document.getElementById(id);
-
-const BONES = [[1,0],[2,0],[3,0],[4,1],[5,2],[6,3],[7,4],[8,5],[9,6],[10,7],
-  [11,8],[12,9],[13,9],[14,9],[15,12],[16,13],[17,14],[18,16],[19,17],
-  [20,18],[21,19],[22,20],[23,21]];
-const FOOT_IDS = [7, 8, 10, 11];
-const L_HIP = 1, R_HIP = 2;
 const COLORS = [0x60a5fa, 0xf472b6, 0x4ade80, 0xfbbf24];
-
-/**
- * 表示座標へ直す。compare.html と同じ考え方:
- *   1. up軸を +Y に
- *   2. 腰の左→右を +X に回して向きを揃える
- *   3. 足元を床(0)に。基準は最低値ではなく中央値
- * 3つ目が特に効く。手法によって世界座標の原点の置き方が違い、
- * TRAM は床を 0 に置かない（同じ動画で頭が GVHMR +1.4m / TRAM -0.2m）。
- */
-function toDisplay(clip) {
-  const [ax, sg] = clip.up_axis;
-  const hz = [0, 1, 2].filter(k => k !== ax);
-  const d = clip.joints.map(fr => fr.map(p => [p[hz[0]], p[ax] * sg, p[hz[1]]]));
-
-  let rx = 0, rz = 0;
-  for (const fr of d) { rx += fr[R_HIP][0] - fr[L_HIP][0]; rz += fr[R_HIP][2] - fr[L_HIP][2]; }
-  const ang = Math.atan2(rz, rx), ca = Math.cos(-ang), sa = Math.sin(-ang);
-  for (const fr of d) for (const p of fr) {
-    const x = p[0], z = p[2];
-    p[0] = x * ca - z * sa; p[2] = x * sa + z * ca;
-  }
-
-  const lows = d.map(fr => Math.min(...FOOT_IDS.map(i => fr[i][1]))).sort((a, b) => a - b);
-  const ground = lows[Math.floor(lows.length / 2)];
-  let sx = 0, sz = 0;
-  for (const fr of d) { sx += fr[0][0]; sz += fr[0][2]; }
-  const cx = sx / d.length, cz = sz / d.length;
-  for (const fr of d) for (const p of fr) { p[0] -= cx; p[1] -= ground; p[2] -= cz; }
-  return d;
-}
-
-function makePane(host, clip, color) {
-  const size = () => [host.clientWidth || 380, host.clientHeight || 400];
-  let [W, H] = size();
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(42, W / H, 0.01, 100);
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(W, H, false); renderer.setPixelRatio(devicePixelRatio);
-  host.appendChild(renderer.domElement);
-  const controls = new OrbitControls(camera, renderer.domElement);
-  camera.position.set(2.6, 1.2, 2.6); controls.target.set(0, 0.9, 0);
-
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
-  scene.add(new THREE.GridHelper(4, 8, 0x333a44, 0x222831));
-
-  const disp = toDisplay(clip);
-  const J = disp[0].length;
-  const boneGeom = new THREE.BufferGeometry();
-  const bonePos = new Float32Array(BONES.length * 2 * 3);
-  boneGeom.setAttribute("position", new THREE.BufferAttribute(bonePos, 3));
-  scene.add(new THREE.LineSegments(boneGeom,
-    new THREE.LineBasicMaterial({ color: 0x9db2cc })));
-  const spheres = [];
-  for (let j = 0; j < J; j++) {
-    const s = new THREE.Mesh(new THREE.SphereGeometry(0.023, 10, 10),
-      new THREE.MeshBasicMaterial({ color }));
-    scene.add(s); spheres.push(s);
-  }
-
-  function setFrame(f) {
-    const fr = disp[Math.max(0, Math.min(disp.length - 1, f))];
-    for (let j = 0; j < J; j++) spheres[j].position.set(...fr[j]);
-    let k = 0;
-    for (const [a, b] of BONES) {
-      bonePos[k++] = fr[a][0]; bonePos[k++] = fr[a][1]; bonePos[k++] = fr[a][2];
-      bonePos[k++] = fr[b][0]; bonePos[k++] = fr[b][1]; bonePos[k++] = fr[b][2];
-    }
-    boneGeom.attributes.position.needsUpdate = true;
-    const ph = clip.metrics.phases, near = (a, b) => Math.abs(a - b) <= 1;
-    const col = near(f, ph.contact) ? 0xef4444
-              : near(f, ph.loading) ? 0xf59e0b : color;
-    for (const s of spheres) s.material.color.setHex(col);
-  }
-
-  function syncSize() {
-    const [w, h] = size();
-    if (w === W && h === H) return;
-    [W, H] = [w, h];
-    camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false);
-  }
-
-  return { clip, camera, controls, frames: disp.length, setFrame,
-           render: () => { syncSize(); controls.update(); renderer.render(scene, camera); } };
-}
 
 const ROWS = [
   ["沈み込み → 打点", c => `${c.metrics.phases.loading} → ${c.metrics.phases.contact}`, null],
@@ -227,7 +136,7 @@ async function main() {
     view.className = "view";
     div.appendChild(view);
     host.appendChild(div);
-    return makePane(view, c, COLORS[i]);
+    return createPane(view, c, COLORS[i]);
   });
 
   window.__models = { panes, clips };   // ローカル検証用
@@ -261,17 +170,8 @@ async function main() {
   apply(f);
 
   // 視点の同期。3つ同時に見るので、揃っていないと形の違いが分からない
-  let camSync = true, syncing = false;
-  panes.forEach(src => src.controls.addEventListener("change", () => {
-    if (!camSync || syncing) return;
-    syncing = true;
-    for (const dst of panes) {
-      if (dst === src) continue;
-      dst.camera.position.copy(src.camera.position);
-      dst.controls.target.copy(src.controls.target);
-    }
-    syncing = false;
-  }));
+  let camSync = true;
+  linkCameras(panes, () => camSync);
   $("camBtn").onclick = () => {
     camSync = !camSync;
     $("camBtn").classList.toggle("on", camSync);

@@ -1,4 +1,20 @@
-# backend — GVHMR を Modal のサーバーレスGPUで動かす
+# backend — 3D復元を Modal のサーバーレスGPUで動かす
+
+3系統が**並行して**動く。app 名も Volume も分けてあるので互いに影響しない。
+
+| ファイル | 手法 | ライセンス | 状態 |
+|---|---|---|---|
+| `reconstruct.py` | GVHMR | 非商用 | **本番。** 動作の再現が最良 |
+| `reconstruct_gemx.py` | GEM-X | Apache-2.0 + NVIDIA Open Model | 評価済み。ラケットドロップが消える |
+| `reconstruct_tram.py` | TRAM | MIT | 評価済み。同じくドロップが浅い |
+
+商用可能な2つを評価したが、どちらもサーブの動作を再現しきれなかった。
+経緯と数値は [issue 009](../docs/issues/009-licensing-for-productization.md)。
+以下は本番の GVHMR についての説明。
+
+---
+
+## GVHMR を Modal で動かす
 
 3D復元 (GVHMR) を Modal 上で実行し、**24関節** (`gv_joints.npy`)、
 **関節の回転** (`gv_pose.npz`)、レンダリング動画を返す。GPUを使うのはこの復元段だけで、重心・角度・フィードバックの

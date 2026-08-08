@@ -9,9 +9,9 @@ __pycache__/
 *.mp4
 *.mov
 *.npy
-output/
+*.npz
+output*/
 web/result_sample.json
 web/avatar/
-output_zverev*/
 *.log
 web/data/
