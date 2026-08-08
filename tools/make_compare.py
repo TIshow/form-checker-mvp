@@ -28,11 +28,11 @@ from analysis.serve import (  # noqa: E402
 )
 
 
-# 復元手法ごとの接頭辞。gv_=GVHMR、gx_=GEM-X（issue #9）。
-# どちらの出力ディレクトリでも同じように読めるようにしておく。
-# GEM-X の gx_joints.npy は analysis/soma.py で SMPL の24関節順に
-# 並べ替え済みなので、ここから下流は手法を意識しなくてよい。
-PREFIXES = ("gv_", "gx_")
+# 復元手法ごとの接頭辞。gv_=GVHMR、gx_=GEM-X、tr_=TRAM（issue #9）。
+# どの出力ディレクトリでも同じように読めるようにしておく。
+# GEM-X は analysis/soma.py で SMPL の24関節順に並べ替え済み、TRAM は
+# 元から24関節なので、ここから下流は手法を意識しなくてよい。
+PREFIXES = ("gv_", "gx_", "tr_")
 
 
 def _pick(d: Path, suffix: str, required: bool = True) -> Path | None:
