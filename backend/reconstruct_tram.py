@@ -67,26 +67,41 @@ image = (
         "libsuitesparse-dev",              # install.sh の conda suitesparse に相当
         "libgl1-mesa-glx", "libglib2.0-0",  # OpenCV
     )
-    .env({"TORCH_CUDA_ARCH_LIST": ARCH, "FORCE_CUDA": "1"})
+    # CC/CXX を明示するのは、Modal の Python が clang でビルドされていて
+    # sysconfig が clang++ を要求するため。イメージに clang は無いので
+    # `which clang++` で落ちる。仮に入れても、PyTorch は linux では g++ で
+    # ビルドされており、拡張を clang++ で作ると ABI が合わない。
+    .env({"TORCH_CUDA_ARCH_LIST": ARCH, "FORCE_CUDA": "1",
+          "CC": "gcc", "CXX": "g++"})
     .run_commands(
         # submodule は lietorch / eigen / DEVA。いずれも HTTPS なので --recursive で通る
         f"git clone --recursive https://github.com/yufu-wang/tram {TRAM}",
         f"cd {TRAM} && git checkout {TRAM_COMMIT} && "
         f"git submodule update --init --recursive",
-        "pip install -U pip setuptools wheel",
+        # ninja が無いと torch の拡張ビルドが逐次の distutils に落ちる。
+        # detectron2 と DROID-SLAM で二度 CUDA を叩くので、ここは効く。
+        "pip install -U pip setuptools wheel ninja",
         # install.sh と同じ組み合わせ（CUDA 11.8 / torch 2.4.0）
         "pip install torch==2.4.0 torchvision torchaudio "
         "--index-url https://download.pytorch.org/whl/cu118",
         # numpy を先に固定する。後から入ると detectron2 等が別版に対して
         # ビルドされ、実行時に ABI で落ちる
         "pip install numpy==1.23.5",
-        f"pip install 'git+https://github.com/facebookresearch/detectron2.git@{DETECTRON2_COMMIT}'",
-        "pip install torch-scatter "
-        "-f https://data.pyg.org/whl/torch-2.4.0+cu118.html",
+        # 先に普通のパッケージを入れる。detectron2 を --no-deps で入れるため、
+        # その依存（fvcore/iopath/omegaconf/…）もここで揃えておく。
         "pip install pytorch-lightning pulp supervision opencv-python loguru "
         "einops plyfile segment_anything scikit-image smplx timm==0.6.7 evo "
         "pytorch-minimize 'imageio[ffmpeg]' gdown openpyxl yacs matplotlib "
-        "scipy tqdm pycocotools",
+        "scipy tqdm pycocotools "
+        "fvcore iopath omegaconf hydra-core termcolor tabulate cloudpickle "
+        "tensorboard portalocker",
+        # detectron2 の setup.py は torch を import する。ビルド分離を切らないと
+        # 隔離環境に torch が無くて ModuleNotFoundError になる（chumpy と同じ罠）。
+        # --no-deps は、依存解決に numpy を上書きされないようにするため。
+        f"pip install --no-build-isolation --no-deps "
+        f"'git+https://github.com/facebookresearch/detectron2.git@{DETECTRON2_COMMIT}'",
+        "pip install torch-scatter "
+        "-f https://data.pyg.org/whl/torch-2.4.0+cu118.html",
         # chumpy は setup.py が pip を要求するのでビルド分離を切る（GVHMR と同じ）
         "pip install --no-build-isolation git+https://github.com/mattloper/chumpy",
         # --- pytorch3d を外すための最小の改変 ---
@@ -100,6 +115,24 @@ image = (
         f"scripts/estimate_humans.py",
         # DROID-SLAM の CUDA 拡張（TRAM 版はマスク対応の改造が入っている）
         f"cd {TRAM}/thirdparty/DROID-SLAM && python setup.py install",
+        # ここまでのどこかで numpy が上げられていないか確かめ、上がっていれば戻す。
+        # torch も detectron2 も numpy 1.x 向けにビルドされているので、2.x が
+        # 混ざると実行時に ABI で落ちる（GEM-X のローカル環境で踏んだ）。
+        "pip install 'numpy==1.23.5' && python -c \"import numpy, torch;"
+        " print('numpy', numpy.__version__, '/ torch', torch.__version__);"
+        " import detectron2; print('detectron2 ok')\"",
+        # lib/camera/masked_droid_slam.py は import 時に
+        # torch.multiprocessing.set_start_method('spawn') を呼ぶ。Modal の
+        # ランタイムは既に開始方式を決めているので二重設定で落ちる。
+        # force=True にすれば、既に spawn でもそうでなくても通る。
+        f"cd {TRAM} && sed -i "
+        f"\"s/set_start_method('spawn')/set_start_method('spawn', force=True)/\" "
+        f"lib/camera/masked_droid_slam.py",
+        # detectron2 の model_zoo が pkg_resources を import する。新しい
+        # setuptools はこれを同梱しなくなったので落ちる。GEM-X の
+        # install_env.sh も同じ理由で setuptools を古い版に留めている。
+        "pip install 'setuptools<75' && python -c \"import pkg_resources;"
+        " from detectron2 import model_zoo; print('detectron2 model_zoo ok')\"",
     )
     .add_local_python_source("analysis")
 )
@@ -149,14 +182,22 @@ def fetch_checkpoints():
         if os.path.exists(p):
             print(f"既にあります: {name}")
             continue
-        r = subprocess.run(["gdown", "--fuzzy", "-O", p,
-                            f"https://drive.google.com/file/d/{fid}/view"],
-                           capture_output=True, text=True)
-        if r.returncode != 0 or not os.path.exists(p):
-            failed.append(name)
-            print(f"❌ {name}: Google Drive から取得できませんでした\n{r.stderr[-400:]}")
-        else:
+        # CLI の `--fuzzy` は gdown の版によって無い。ファイルIDを直接渡す
+        # Python API なら URL の解釈も要らず、版差の影響を受けにくい。
+        try:
+            import gdown
+
+            gdown.download(id=fid, output=p, quiet=False)
+        except Exception as e:
+            print(f"❌ {name}: {type(e).__name__}: {str(e)[-300:]}")
+        if os.path.exists(p) and os.path.getsize(p) > 1_000_000:
             print(f"✅ {name}  ({os.path.getsize(p) / 1e6:.0f} MB)")
+        else:
+            # 中身がHTML（クォータ超過の警告ページ）なら消しておく
+            if os.path.exists(p):
+                os.remove(p)
+            failed.append(name)
+            print(f"❌ {name}: Google Drive から取得できませんでした")
 
     vol.commit()
     if failed:
@@ -259,6 +300,12 @@ def reconstruct(video_bytes: bytes, name: str,
     # estimate_humans.py は追跡の長い順に番号を振る。0 が主対象。
     print(f"[tracks] {len(tracks)} 人ぶん。track 0 を使います")
 
+    # TRAM のスクリプトは自前で sys.path を通している（scripts/*.py の冒頭）。
+    # こちらは chdir しているだけなので import できない。明示的に通す。
+    import sys
+
+    if TRAM not in sys.path:
+        sys.path.insert(0, TRAM)
     from lib.models.smpl import SMPL
     from lib.vis.traj import traj_filter
 
