@@ -209,3 +209,38 @@ def test_com_derived_from_joints_is_anatomical():
     h = com[:, up_ax] * up_sign
     assert 0.5 < h.min() < 1.5
     assert up_ax == 1 and up_sign == 1.0
+
+
+# ---------------------------------------------------------------------------
+# SOMA(GEM-X) → SMPL24 の並べ替え（issue #9）
+# ---------------------------------------------------------------------------
+
+def test_soma_mapping_is_a_valid_permutation():
+    """24関節ぶん、重複なく SOMA の範囲内を指していること。"""
+    from analysis.soma import SMPL24_FROM_SOMA78, SOMA78_JOINTS
+    idx = [i for _, i in SMPL24_FROM_SOMA78]
+    assert len(idx) == 24
+    assert len(set(idx)) == 24, "同じ SOMA 関節を2度使っている"
+    assert all(0 <= i < SOMA78_JOINTS for i in idx)
+
+
+def test_soma_mapping_absorbs_missing_root():
+    """Root 込み(78)と Root 無し(77)で、同じ関節を指すこと。
+
+    ここがずれると「膝の角度」が別の関節の角度になり、しかも
+    それらしい数字が出てしまうので、取り違えに気付けない。
+    """
+    import numpy as np
+    from analysis.soma import to_smpl24
+    # 関節 i の座標を i にしておけば、どれを引いたかが値で分かる
+    j78 = np.arange(78, dtype=float)[None, :, None].repeat(3, axis=2)
+    j77 = j78[:, 1:, :] - 1.0          # Root を落とし、添字を1つ詰めた並び
+    assert np.array_equal(to_smpl24(j78), to_smpl24(j77) + 1.0)
+
+
+def test_soma_mapping_rejects_unknown_joint_count():
+    import numpy as np
+    import pytest
+    from analysis.soma import to_smpl24
+    with pytest.raises(ValueError, match="SOMA の関節数"):
+        to_smpl24(np.zeros((2, 24, 3)))
