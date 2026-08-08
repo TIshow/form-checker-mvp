@@ -33,3 +33,4 @@ docは消さない。完了後の価値は手順ではなく「なぜそうし�
 | [006](006-racket-tracking.md) | ラケットを追跡する | [#6](https://github.com/TIshow/form-checker-mvp/issues/6) | Open |
 | [007](007-motion-transfer-comparison.md) | 同じ体に揃えて比較する（お手本の動きを自分の体で） | [#7](https://github.com/TIshow/form-checker-mvp/issues/7) | Open |
 | [008](008-moving-camera-slam.md) | カメラが動く素材で世界座標が壊れる（跳躍が再現されない） | — | Open |
+| [009](009-licensing-for-productization.md) | 製品化のライセンス制約（GVHMR と SMPL が非商用） | — | Open |

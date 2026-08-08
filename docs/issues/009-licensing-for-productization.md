@@ -1,0 +1,85 @@
+# Issue 009: 製品化のライセンス制約（GVHMR と SMPL が非商用）
+
+Status: Open
+作成: 2026-08-08
+
+## なぜ今これを書くか
+
+「日本の部活動で使えるように製品化したい」という目標が出た。現在のパイプラインは
+**2箇所が非商用ライセンス**で、そのままでは製品化できない。技術的にどれだけ
+良くなっても、ここが解けないと出口がない。設計判断（どの手法に乗るか）にも
+効き続けるので、先に整理しておく。
+
+## 依存部品のライセンス（2026-08-08 実地確認）
+
+| 部品 | 役割 | ライセンス | 商用 |
+|---|---|---|---|
+| **GVHMR** | 世界座標の3D復元 | 独自（非商用） | ✗ 個別許諾 |
+| **SMPL / SMPL-X** | 人体モデル | MPI 学術ライセンス | ✗ 別途商用契約 |
+| **YOLOv8** (Ultralytics) | 人物検出 | AGPL-3.0 | △ 公開 or 有償 |
+| HMR2 (4D-Humans) | 体の回帰 | MIT | ○ |
+| ViTPose | 2D関節 | Apache-2.0 | ○ |
+| DPVO | SLAM | MIT | ○ |
+
+GVHMR の LICENSE 原文（該当部）:
+
+> Permission to use, copy, modify and distribute this software and its
+> documentation for educational, research and non-profit purposes only.
+> Any modification based on this work must be open-source and prohibited
+> for commercial use.
+> For commercial uses of this software, please send email to xwzhou@zju.edu.cn
+
+SMPL は商用製品・サービスへの組み込みを明示的に禁止し、加えて**再配布・
+サブライセンスも禁止**している。商用窓口は Meshcapade / smpl@max-planck-innovation.de。
+
+## 無償で配る場合はどうか
+
+どちらも**非商用の教育目的は明示的に許可**している。
+
+- SMPL: "non-commercial scientific research, **non-commercial education**, or
+  non-commercial artistic projects"
+- GVHMR: "**educational**, research and non-profit purposes only"
+
+完全無償・非収益なら該当する可能性がある。ただし:
+
+- **SMPL のモデルファイルは配布できない。** 学校側にインストールさせる形は取れず、
+  サーバ側で完結させる必要がある（それでも「サービスへの組み込み」に触れうる）
+- GVHMR は「改変物はオープンソースでなければならない」— 自前の改造を
+  クローズドにできない
+
+## 進め方（順番が大事）
+
+### 1. GVHMR の商用可否を先に当たる（最優先・費用ゼロ）
+`xwzhou@zju.edu.cn` に照会する。**ここが一番読めない**（大学研究室の裁量で、
+可否も条件も事前に分からない）ため、他に投資する前に確かめる。
+NG なら設計の前提が変わる。
+
+### 2. YOLOv8 を差し替える（費用ゼロ・交渉不要）
+人物検出なので代替が効く。**YOLOX / RT-DETR / RTMDet はいずれも Apache-2.0**。
+差し替えれば AGPL の問題は消える。これは可否を待たずに着手してよい。
+
+### 3. SMPL の商用ライセンスを取る（費用の問題）
+Meshcapade が扱っており、経路は確立している。**可否ではなく費用の交渉**。
+WHAM も TRAM も SMPL ベースなので、手法を変えても回避できない。事実上の前提条件。
+
+## GVHMR が NG だった場合
+
+残りは全部許諾型なので、**世界座標化の段だけが問題**になる。
+
+- ViTPose + HMR2 でカメラ空間の姿勢は取れる（MIT / Apache-2.0）
+- 足りないのは「重力に対する向き」と「世界座標での軌跡」
+- ここを自前で作るのは研究プロジェクトになる。安易に見積もらないこと
+
+なお [008](008-moving-camera-slam.md) で分かったとおり、**跳躍が失われているのは
+まさにこの世界座標化の段**。自前で作るなら、その弱点を直せる可能性はある。
+
+## 注意
+
+ここに書いたのはライセンス文書を読んだ結果であって、法的助言ではない。
+実際に進めるときは権利者からの書面確認と弁護士のレビューを取ること。
+ただし**確認すべき相手と論点は上の3つに絞れている**。
+
+## 関連
+
+- [008](008-moving-camera-slam.md) — 世界座標化の段の技術的な弱点
+- [002](002-modal-gvhmr-backend.md) — 差し替え対象のイメージ定義
