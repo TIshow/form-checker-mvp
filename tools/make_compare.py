@@ -28,6 +28,24 @@ from analysis.serve import (  # noqa: E402
 )
 
 
+# 復元手法ごとの接頭辞。gv_=GVHMR、gx_=GEM-X（issue #9）。
+# どちらの出力ディレクトリでも同じように読めるようにしておく。
+# GEM-X の gx_joints.npy は analysis/soma.py で SMPL の24関節順に
+# 並べ替え済みなので、ここから下流は手法を意識しなくてよい。
+PREFIXES = ("gv_", "gx_")
+
+
+def _pick(d: Path, suffix: str, required: bool = True) -> Path | None:
+    for p in PREFIXES:
+        f = d / f"{p}{suffix}"
+        if f.exists():
+            return f
+    if required:
+        names = " / ".join(f"{p}{suffix}" for p in PREFIXES)
+        raise FileNotFoundError(f"{d} に {names} のいずれも見つかりません")
+    return None
+
+
 def quality(joints: np.ndarray, phases: dict) -> dict:
     """この復元が比較に使えるかの目安。UI で警告を出すために持たせる。
 
@@ -54,7 +72,7 @@ def bundle(joints_dir: str, fps: float, label: str,
            video: str | None = None,
            trim: tuple[float | None, float | None] = (None, None)) -> dict:
     d = Path(joints_dir)
-    joints = np.load(d / "gv_joints.npy")
+    joints = np.load(_pick(d, "joints.npy"))
     res = analysis.analyze_json(joints, fps)
     res["label"] = label
     res["fps"] = fps
@@ -75,8 +93,8 @@ def bundle(joints_dir: str, fps: float, label: str,
         except SystemExit as e:      # imageio 未導入など。解析自体は続ける
             print(f"⚠️ カメラ運動を調べられませんでした: {e}")
 
-    pose_path = d / "gv_pose.npz"
-    if pose_path.exists():
+    pose_path = _pick(d, "pose.npz", required=False)
+    if pose_path is not None and pose_path.exists():
         p = np.load(pose_path)
         res["pose"] = {k: p[k].round(5).tolist() for k in p.files}
     else:

@@ -49,7 +49,7 @@ image = (
         "nvidia/cuda:12.6.0-devel-ubuntu22.04", add_python="3.10"
     )
     .apt_install(
-        "git", "git-lfs", "wget", "curl", "ffmpeg",
+        "git", "git-lfs", "wget", "curl", "ffmpeg", "build-essential",
         # open3d / OpenCV のヘッドレス描画に要る（Dockerfile 準拠）
         "libegl1-mesa-dev", "libgl1-mesa-glx", "libglib2.0-0", "xvfb",
     )
@@ -68,8 +68,29 @@ image = (
         f"cd {GEMX} && pip install -e third_party/soma",
         # SOMA の重み(827MB)は LFS。ポインタのままだと実行時に落ちる
         f"cd {GEMX}/third_party/soma && git lfs pull",
-        # install_env.sh は uv 前提。venv を作らないので system python を対象にする
-        f"cd {GEMX} && UV_SYSTEM_PYTHON=1 bash scripts/install_env.sh",
+        # scripts/install_env.sh の中身を展開している。理由は detectron2 を
+        # 入れないため。あれは third_party/sam-3d-body 単体デモ用の検出器で、
+        # 遅延 import されるだけ。GEM-X のデモは YOLOX + ByteTrack を使う
+        # （macOS 経路は detectron2 を丸ごとスキップしていて、検出は動く）。
+        #
+        # CC/CXX を渡すのは、Modal の Python が clang でビルドされていて
+        # sysconfig が clang++ を要求するため。PyTorch は linux では g++ で
+        # ビルドされており、拡張を clang++ で作ると ABI が合わない
+        # （PyTorch 自身がそう警告する）。
+        f"cd {GEMX} && CC=gcc CXX=g++ pip install -e .",
+        "CC=gcc CXX=g++ pip install cloudpickle fvcore iopath pycocotools "
+        "braceexpand roma 'setuptools<75'",
+        # requirements.txt にも install_env.sh の Linux 分岐にも入っていないが、
+        # demo_soma.py は両方要る。上流の抜け。
+        #   onnxruntime … 人物検出は全プラットフォームで ONNX の YOLOX
+        #                 (gem/utils/yolox_detector.py)。install_env.sh は
+        #                 macOS のときしか入れない
+        #   open3d     … レンダ動画の描画。関数内 import なので推論だけなら
+        #                 無くても通るが、目視での確認に使うので入れる
+        # onnxruntime は CPU 版。GPU 版は cuDNN を要求し、この CUDA イメージには
+        # 入っていないので CUDA EP の読み込みに失敗して結局 CPU に落ちる。
+        # 検出は数百フレームで十数秒なので CPU で十分。
+        "pip install onnxruntime open3d",
         # デモは inputs/soma_assets を見る（setup スクリプトが張る symlink）
         f"cd {GEMX} && mkdir -p inputs && "
         f"ln -sfn {GEMX}/third_party/soma/assets inputs/soma_assets",
@@ -183,13 +204,30 @@ def reconstruct(video_bytes: bytes, name: str,
 
     out_root = "outputs/demo_soma"
     cmd = ["python", "scripts/demo/demo_soma.py",
-           f"--video={src}", f"--output_root={out_root}"]
+           f"--video={src}", f"--output_root={out_root}",
+           # 明示しないと毎回 HuggingFace 取得の経路に入る（実体があれば
+           # スキップされるが、Volume に置いたものを使う意図を明確にする）
+           f"--ckpt={GEMX}/inputs/pretrained/gem_soma.ckpt"]
     if static_cam:
         cmd.append("-s")
     subprocess.run(cmd, check=True)
 
-    pred = torch.load(f"{out_root}/{stem}/preprocess/hpe_results.pt",
-                      map_location="cpu")
+    # configs/demo_soma.yaml は `${output_dir}/hpe_results.pt`。
+    # DEMO.md の表は preprocess/ 配下と書いているが、そちらが誤り。
+    pred_path = f"{out_root}/{stem}/hpe_results.pt"
+    pred = torch.load(pred_path, map_location="cpu")
+    print(f"[hpe_results] 最上位のキー: {list(pred)}")
+
+    # 推論結果を Volume に残す。ここから先（姿勢パラメータ → 関節座標）で
+    # つまずくたびに3分のフルパイプラインを回し直すのは高くつくので、
+    # 中間結果を取っておいて joints_from_pred() だけ試せるようにする。
+    import shutil
+
+    keep = Path(ASSETS) / "debug"
+    keep.mkdir(parents=True, exist_ok=True)
+    shutil.copy(pred_path, keep / f"{stem}_hpe_results.pt")
+    vol.commit()
+    print(f"[debug] {keep}/{stem}_hpe_results.pt に保存しました")
 
     # SOMA の姿勢パラメータ → 関節座標。世界座標とカメラ空間の両方を出す。
     # デモの描画側は見栄えのために y の最小値を引いて接地させているが、
@@ -201,14 +239,88 @@ def reconstruct(video_bytes: bytes, name: str,
     soma = SomaLayer(data_root="inputs/soma_assets", low_lod=True,
                      device=dev, identity_model_type="mhr", mode="warp")
 
+    def body_params(space: str) -> dict:
+        """`body_params_global` か、末尾の揃う変種（`soma_params_global` 等）を拾う。
+
+        デモ側も同じ緩い探し方をしている（demo_soma.py の _get_body_params）。
+        チェックポイントの版でキー名が変わるため。
+        """
+        key = f"body_params_{space}"
+        if key in pred:
+            return pred[key]
+        tail = f"_params_{space}"
+        for k in pred:
+            if k.endswith(tail):
+                print(f"[{space}] キー名が {k} でした")
+                return pred[k]
+        raise KeyError(f"{key} も *{tail} も見つかりません: {list(pred)}")
+
+    import inspect
+
+    accepted = set(inspect.signature(soma.forward).parameters) - {"self"}
+    print(f"[soma] forward が受け取る引数: {sorted(accepted)}")
+
+    def base_kwargs(params: dict) -> dict:
+        """保存された姿勢パラメータを forward() の引数の形に直す。
+
+        forward() は全関節の回転をまとめた `poses` (F, J, 3) を取るが、
+        保存側は SMPL 流に `global_orient`（根の回転）と `body_pose`（残り）に
+        分かれている。連結して先頭を根にすれば `poses` になる。
+        すでに `poses` があるチェックポイント版もあるので、その場合はそのまま。
+        """
+        kw = {k: v for k, v in params.items() if k in accepted}
+        if "poses" not in kw and {"global_orient", "body_pose"} <= set(params):
+            go = params["global_orient"].reshape(len(params["body_pose"]), 1, 3)
+            bp = params["body_pose"].reshape(len(go), -1, 3)
+            kw["poses"] = torch.cat([go, bp], dim=1)
+            print(f"[poses] global_orient {tuple(go.shape)} + "
+                  f"body_pose {tuple(bp.shape)} → poses {tuple(kw['poses'].shape)}")
+        return kw
+
+    def variants(kw: dict):
+        """scale_params の解釈が確定しないので、候補を順に試す。
+
+        forward() の説明は `scale_params: (batch_size, 68)` だが、保存値は 69。
+        gem_pipeline.py は `global_scale = scale_params[..., 0]` と書いており、
+        先頭が全体スケールらしい。実際 MHR 内部の einsum が 322 対 321 と
+        ちょうど1つぶんずれる。ただしその後 scale_params[...,0] を書き戻して
+        いるので確証がない。動く形を実測で決める。
+        """
+        sp = kw.get("scale_params")
+        yield "そのまま", kw
+        if sp is not None and sp.shape[-1] > 1:
+            head = dict(kw)
+            head["scale_params"] = sp[..., 1:]
+            head["global_scale"] = sp[..., 0]
+            yield "先頭を global_scale として分離", head
+            drop = dict(kw)
+            drop["scale_params"] = sp[..., 1:]
+            yield "先頭を捨てる", drop
+
     joints = {}
     poses = {}
     for space in ("global", "incam"):
-        params = pred[f"body_params_{space}"]
-        with torch.no_grad():
-            out = soma(**{k: v.to(dev) for k, v in params.items()})
+        params = body_params(space)
+        print(f"[{space}] 保存されているキー: "
+              + ", ".join(f"{k}{tuple(v.shape)}" if torch.is_tensor(v) else k
+                          for k, v in params.items()))
+        kw = base_kwargs(params)
+        out = None
+        for why, cand in variants(kw):
+            try:
+                with torch.no_grad():
+                    out = soma(**{k: (v.to(dev) if torch.is_tensor(v) else v)
+                                  for k, v in cand.items()})
+                print(f"[{space}] 通った解釈: {why}")
+                break
+            except (RuntimeError, TypeError) as e:
+                print(f"[{space}] 「{why}」は不可: {str(e).splitlines()[-1][:120]}")
+        if out is None:
+            raise RuntimeError(
+                f"{space}: scale_params の解釈がどれも通りませんでした")
         joints[space] = out["joints"].cpu().numpy()
-        poses[space] = {k: v.detach().cpu().numpy() for k, v in params.items()}
+        poses[space] = {k: (v.detach().cpu().numpy() if torch.is_tensor(v) else v)
+                        for k, v in params.items()}
         print(f"[{space}] joints {joints[space].shape}")
 
     renders = {}
