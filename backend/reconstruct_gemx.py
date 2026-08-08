@@ -55,9 +55,12 @@ image = (
     )
     .run_commands(
         "git lfs install",
-        f"git clone --recursive https://github.com/NVlabs/GEM-X {GEMX}",
+        # --recursive にしない。soma-retargeter submodule だけ SSH URL
+        # (git@github.com:...) で、鍵の無いビルド環境では必ず失敗する。
+        # あれは Unitree G1 へのリターゲット用で、ここでは使わない。
+        f"git clone https://github.com/NVlabs/GEM-X {GEMX}",
         f"cd {GEMX} && git checkout {GEMX_COMMIT} && "
-        f"git submodule update --init --recursive",
+        f"git submodule update --init third_party/soma third_party/sam-3d-body",
         "pip install -U pip setuptools wheel uv",
         # torch はバージョン無指定（Dockerfile と同じ）。cu126 の index から取る
         "pip install torch torchvision "
