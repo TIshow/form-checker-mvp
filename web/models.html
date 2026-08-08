@@ -15,12 +15,18 @@
            border-radius:8px; padding:7px 13px; font-size:14px; cursor:pointer; }
   button.on { background:#2563eb; border-color:#2563eb; }
   input[type=range] { flex:1; min-width:260px; accent-color:#2563eb; }
-  #panes { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  /* minmax(0,1fr) にしないと、列は「内容より狭くならない」ため、
+     キャンバスを広げる → 列が広がる → 次のフレームでさらに広げる、
+     という増幅ループになって画面が横に伸び続ける。 */
+  #panes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
   .pane h4 { margin:0 0 6px; font-size:14px; font-weight:600;
              display:flex; align-items:center; gap:7px; }
   .tag { width:11px; height:11px; border-radius:3px; display:inline-block; }
   .view { width:100%; height:400px; background:#080b0f;
-          border:1px solid var(--line); border-radius:8px; }
+          border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  /* キャンバスの表示サイズは CSS 側で決める。three の setSize に px を
+     書かせると（下の setSize(w,h,false) で抑止）、その値が箱の幅を押し広げる。 */
+  .view canvas { display:block; width:100%; height:100%; }
   .meta { color:var(--mute); font-size:12px; margin-top:5px; font-variant-numeric:tabular-nums; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
   th, td { padding:7px 9px; border-bottom:1px solid var(--line); text-align:left;
@@ -125,7 +131,7 @@ function makePane(host, clip, color) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(42, W / H, 0.01, 100);
   const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(W, H); renderer.setPixelRatio(devicePixelRatio);
+  renderer.setSize(W, H, false); renderer.setPixelRatio(devicePixelRatio);
   host.appendChild(renderer.domElement);
   const controls = new OrbitControls(camera, renderer.domElement);
   camera.position.set(2.6, 1.2, 2.6); controls.target.set(0, 0.9, 0);
@@ -166,7 +172,7 @@ function makePane(host, clip, color) {
     const [w, h] = size();
     if (w === W && h === H) return;
     [W, H] = [w, h];
-    camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
+    camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h, false);
   }
 
   return { clip, camera, controls, frames: disp.length, setFrame,
