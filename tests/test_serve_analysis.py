@@ -244,3 +244,52 @@ def test_soma_mapping_rejects_unknown_joint_count():
     from analysis.soma import to_smpl24
     with pytest.raises(ValueError, match="SOMA の関節数"):
         to_smpl24(np.zeros((2, 24, 3)))
+
+
+# ---------------------------------------------------------------------------
+# 多数本の集計に使う統計（issue #10）
+# scipy を入れていないので自前実装。結論を左右するので挙動を固定する。
+# ---------------------------------------------------------------------------
+
+def _mw(a, b):
+    import numpy as np
+    from tools.make_session import mann_whitney_p
+    return mann_whitney_p(np.array(a, float), np.array(b, float))
+
+
+def test_mann_whitney_p_stays_within_zero_and_one():
+    """連続性補正が |u-mu| を上回ると p が 1 を超えていた（実測 1.03）。"""
+    assert _mw([1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6]) == 1.0
+    assert _mw([1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 7]) <= 1.0
+
+
+def test_mann_whitney_p_separates_and_overlaps():
+    assert _mw(list(range(10)), list(range(100, 110))) < 0.01   # 完全に分離
+    assert _mw(list(range(10)), list(range(2, 12))) > 0.05      # 大きく重なる
+
+
+def test_mann_whitney_p_false_positive_rate():
+    """差の無い分布で p<0.05 が約5%に収まること。
+
+    ここが狂うと「入った/入らなかったで差がある」と誤って報告する。
+    """
+    import numpy as np
+    rng = np.random.default_rng(0)
+    ps = [_mw(rng.normal(size=17), rng.normal(size=25)) for _ in range(400)]
+    assert 0.01 < float(np.mean(np.array(ps) < 0.05)) < 0.12
+
+
+def test_holm_is_monotonic_and_scales_smallest():
+    from tools.make_session import holm
+    adj = holm([0.001, 0.01, 0.04, 0.20, 0.90])
+    assert adj == sorted(adj)              # 単調
+    assert adj[0] == 0.005                 # 最小の p は件数倍（0.001×5）
+    assert all(p <= 1.0 for p in adj)
+
+
+def test_holm_ignores_nan():
+    import math
+    from tools.make_session import holm
+    adj = holm([0.01, float("nan"), 0.5])
+    assert math.isnan(adj[1])
+    assert adj[0] == 0.02                  # nan を除いた2件ぶんで補正

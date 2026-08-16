@@ -136,6 +136,7 @@ web/           ブラウザで見る（配信は web/devserver.py）
   index.html     単体解析 — 動画を投げて結果を見る
   compare.html   二画面   — 2本の動画を見比べる（自分 vs お手本）
   models.html    三画面   — 1本を複数の復元手法で見比べる（報告用）
+  session.html   多数本   — 1回の練習をまとめて見る（ばらつき・時系列）
   skeleton.js    3D骨格の表示。compare/models が共有
   avatar.js      VRMへのリターゲット
 tests/         合成サーブデータによる検証
@@ -143,8 +144,10 @@ tools/         補助スクリプト
   videoinfo.py     動画の実fps（コンテナ上の再生レート）を読む
   estimate_fps.py  空中の重心の落ち方から実fpsを推定（スロー動画用）
   camera_motion.py カメラが動いていないか（動くと世界座標が壊れる）
+  find_serves.py   長い動画からサーブ区間を見つけ、1本ずつ切り出す
   make_compare.py  compare.html 用のデータ生成
   make_models.py   models.html 用のデータ生成
+  make_session.py  多数本をまとめて集計（ばらつき・結果との関係）
   compare_backends.py 復元手法を同じ物差しで比べる
 notebooks/     P0検証時の Colab 手順（記録・非推奨）
 ```

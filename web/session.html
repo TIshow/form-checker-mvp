@@ -1,0 +1,268 @@
+<meta charset="utf-8" />
+<title>練習セッション — 多数本の集計</title>
+<style>
+  :root { --bg:#0b0e12; --card:#141a22; --line:#232b36; --fg:#e6edf5;
+          --mute:#93a1b3; --in:#4ade80; --other:#f87171; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.65 -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  main { max-width:1180px; margin:0 auto; padding:20px 18px 60px; }
+  h1 { font-size:20px; margin:0 0 4px; font-weight:600; }
+  h2 { font-size:16px; margin:0 0 10px; font-weight:600; }
+  .sub { color:var(--mute); font-size:13px; margin:0 0 18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:16px; margin-bottom:16px; }
+  .note { color:var(--mute); font-size:13px; margin-top:10px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { padding:7px 8px; border-bottom:1px solid var(--line); text-align:right;
+           font-variant-numeric:tabular-nums; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  th { color:var(--mute); font-weight:500; font-size:12px; }
+  tr.sel td { background:#1c2836; }
+  .pill { display:inline-block; padding:1px 7px; border-radius:99px; font-size:12px; }
+  .pill.in { background:#14361f; color:var(--in); }
+  .pill.other { background:#3a1a1a; color:var(--other); }
+  .sig { color:var(--in); font-weight:600; }
+  .view { width:100%; height:380px; background:#080b0f; border:1px solid var(--line);
+          border-radius:8px; overflow:hidden; }
+  .view canvas { display:block; width:100%; height:100%; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  select, button { background:#1c2632; color:var(--fg); border:1px solid var(--line);
+                   border-radius:8px; padding:7px 12px; font-size:14px; cursor:pointer; }
+  input[type=range] { flex:1; min-width:200px; accent-color:#2563eb; }
+  .grid2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,380px); gap:16px; }
+  @media (max-width:900px) { .grid2 { grid-template-columns:minmax(0,1fr); } }
+  svg text { font-size:11px; fill:var(--mute); }
+</style>
+
+<main>
+  <h1>練習セッション — 多数本の集計</h1>
+  <p class="sub" id="sub">読み込み中…</p>
+
+  <div class="card">
+    <h2>① ばらつきと ② 測定の安定度</h2>
+    <table id="dist"></table>
+    <p class="note">
+      <b>CV（変動係数）</b>は、単位の違う指標どうしで「どれだけ振れるか」を
+      比べるためのものです。小さいほど毎回同じ値が出ています。
+      本人のばらつきと測定ノイズは、この数字だけでは切り分けられません。
+      <b>ばらつきの大きい指標は、1本のサーブから語ってはいけない</b>ことになります。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>③ 入った / それ以外</h2>
+    <table id="cmp"></table>
+    <p class="note" id="cmpNote"></p>
+  </div>
+
+  <div class="card">
+    <h2>④ 時系列（疲労で変わるか）</h2>
+    <div class="row" style="margin-bottom:10px">
+      <label>指標
+        <select id="trendPick"></select>
+      </label>
+    </div>
+    <svg id="trend" width="100%" viewBox="0 0 1100 260" role="img"></svg>
+    <p class="note">
+      横軸は打った順、縦軸はその指標。<span style="color:var(--in)">緑=入った</span> /
+      <span style="color:var(--other)">赤=それ以外</span>。破線は中央値です。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>個別に見る</h2>
+    <div class="grid2">
+      <div>
+        <div class="row" style="margin-bottom:8px">
+          <label>サーブ <select id="pick"></select></label>
+          <button id="play">▶ 再生</button>
+          <input type="range" id="scrub" min="0" value="0" />
+        </div>
+        <div class="view" id="view"></div>
+        <p class="note" id="meta"></p>
+      </div>
+      <div>
+        <table id="one"></table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import { createPane } from "./skeleton.js";
+
+const $ = (id) => document.getElementById(id);
+const IN = "#4ade80", OTHER = "#f87171";
+const fmt = (v, d) => v == null ? "—" : v.toFixed(d);
+
+let S = null;         // session.json
+let pane = null, playing = false, frame = 0, loaded = null;
+
+function distTable(s) {
+  const head = `<tr><th>指標</th><th>本数</th><th>中央値</th><th>四分位</th>
+    <th>範囲</th><th>CV</th></tr>`;
+  const body = s.metrics.map(m => {
+    const a = m.all; if (!a) return "";
+    const d = m.dp, u = m.unit;
+    const cv = a.cv == null ? "—" : `${(a.cv * 100).toFixed(0)}%`;
+    return `<tr><td>${m.name}</td><td>${a.n}</td>
+      <td>${fmt(a.median, d)} ${u}</td>
+      <td>${fmt(a.q1, d)}–${fmt(a.q3, d)}</td>
+      <td>${fmt(a.min, d)}–${fmt(a.max, d)}</td>
+      <td>${cv}</td></tr>`;
+  }).join("");
+  $("dist").innerHTML = head + body;
+}
+
+function cmpTable(s) {
+  const head = `<tr><th>指標</th>
+    <th style="color:${IN}">入った (${s.n_in})</th>
+    <th style="color:${OTHER}">それ以外 (${s.n_other})</th>
+    <th>差</th><th>p（補正後）</th></tr>`;
+  let anySig = false;
+  const body = s.metrics.map(m => {
+    const d = m.dp;
+    const sig = m.p_holm != null && m.p_holm < 0.05;
+    if (sig) anySig = true;
+    const p = m.p_holm == null ? "—" : m.p_holm.toFixed(3);
+    return `<tr><td>${m.name}</td>
+      <td>${m.in?.n ? fmt(m.in.median, d) : "—"}</td>
+      <td>${m.other?.n ? fmt(m.other.median, d) : "—"}</td>
+      <td>${m.diff == null ? "—" : (m.diff >= 0 ? "+" : "") + fmt(m.diff, d)}</td>
+      <td class="${sig ? "sig" : ""}">${p}${sig ? " *" : ""}</td></tr>`;
+  }).join("");
+  $("cmp").innerHTML = head + body;
+  $("cmpNote").innerHTML = anySig
+    ? "<b>* は Holm 補正後も p&lt;0.05。</b> ただしこれは<b>探索的な結果</b>で、"
+      + "確認された関係ではありません。言えるのは「あなたのこのセッションでは"
+      + "そういう傾向だった」までで、<b>「直せば入るようになる」は言えません</b>"
+      + "（因果を示すには介入実験が要ります）。"
+    : "補正後に残った差はありません。指標を9個並べて差を探すと偶然どれかに"
+      + "差が出るため、Holm 法で補正しています。<b>差が無いことの証明ではなく</b>、"
+      + "この本数では言えない、という意味です。";
+}
+
+function trend(name) {
+  const m = S.summary.metrics.find(x => x.name === name);
+  const svg = $("trend");
+  const W = 1100, H = 260, L = 56, R = 14, T = 14, B = 30;
+  const pts = S.serves.map((s, i) => ({ i, v: s.values[name], r: s.result, n: s.serve }));
+  const vs = pts.map(p => p.v).filter(v => v != null);
+  if (!vs.length) { svg.innerHTML = ""; return; }
+  let lo = Math.min(...vs), hi = Math.max(...vs);
+  if (hi === lo) { hi += 1; lo -= 1; }
+  const pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
+  const x = i => L + (W - L - R) * (pts.length < 2 ? 0.5 : i / (pts.length - 1));
+  const y = v => T + (H - T - B) * (1 - (v - lo) / (hi - lo));
+  const med = m.all.median;
+
+  let g = "";
+  for (let k = 0; k <= 4; k++) {
+    const v = lo + (hi - lo) * k / 4, yy = y(v);
+    g += `<line x1="${L}" y1="${yy}" x2="${W - R}" y2="${yy}" stroke="#232b36"/>`
+       + `<text x="${L - 8}" y="${yy + 4}" text-anchor="end">${v.toFixed(m.dp)}</text>`;
+  }
+  g += `<line x1="${L}" y1="${y(med)}" x2="${W - R}" y2="${y(med)}"
+        stroke="#5b6b80" stroke-dasharray="5 4"/>`;
+  g += `<polyline fill="none" stroke="#33415a" stroke-width="1.5" points="${
+        pts.filter(p => p.v != null).map(p => `${x(p.i)},${y(p.v)}`).join(" ")}"/>`;
+  for (const p of pts) {
+    if (p.v == null) continue;
+    g += `<circle cx="${x(p.i)}" cy="${y(p.v)}" r="5"
+          fill="${p.r === "in" ? IN : OTHER}"><title>#${p.n} ${p.r}: ${p.v.toFixed(m.dp)}</title></circle>`;
+  }
+  g += `<text x="${L}" y="${H - 8}">1本目</text>`
+     + `<text x="${W - R}" y="${H - 8}" text-anchor="end">${pts.length}本目</text>`;
+  svg.innerHTML = g;
+}
+
+function oneTable(sv) {
+  const rows = S.summary.metrics.map(m => {
+    const v = sv.values[m.name], a = m.all, d = m.dp;
+    // 全体の中でどのあたりか（四分位の外なら色をつける）
+    let tag = "";
+    if (v != null && a) {
+      if (v < a.q1) tag = ` <span style="color:${OTHER}">低</span>`;
+      else if (v > a.q3) tag = ` <span style="color:${IN}">高</span>`;
+    }
+    return `<tr><td>${m.name}</td><td>${fmt(v, d)} ${m.unit}${tag}</td>
+      <td style="color:var(--mute)">中央 ${fmt(a?.median, d)}</td></tr>`;
+  }).join("");
+  $("one").innerHTML = `<tr><th>指標</th><th>この1本</th><th>全体</th></tr>` + rows;
+}
+
+async function showServe(n) {
+  const sv = S.serves.find(s => s.serve === n);
+  oneTable(sv);
+  const clip = await (await fetch(`data/serves/serve_${String(n).padStart(2, "0")}.json`)).json();
+  $("view").innerHTML = "";
+  pane = createPane($("view"), clip, sv.result === "in" ? 0x4ade80 : 0xf87171);
+  loaded = clip;
+  $("scrub").max = String(pane.frames - 1);
+  setFrame(clip.metrics.phases.loading);
+}
+
+function setFrame(f) {
+  if (!pane) return;
+  frame = Math.max(0, Math.min(pane.frames - 1, Math.round(f)));
+  $("scrub").value = String(frame);
+  pane.setFrame(frame);
+  const ph = loaded.metrics.phases;
+  const mark = frame === ph.contact ? "　← 打点"
+             : frame === ph.loading ? "　← 沈み込み" : "";
+  $("meta").textContent =
+    `frame ${frame} / ${pane.frames - 1}　${(frame / S.fps).toFixed(2)}s${mark}`;
+}
+
+async function main() {
+  try {
+    S = await (await fetch("data/session.json")).json();
+  } catch (e) {
+    $("sub").textContent = "data/session.json を読めません。tools/make_session.py で生成してください。";
+    return;
+  }
+  const s = S.summary;
+  $("sub").textContent =
+    `${S.label}　${s.n_total}本（入った ${s.n_in} / それ以外 ${s.n_other}）　@${S.fps}fps`
+    + (S.missing?.length ? `　※復元なし ${S.missing.length}本` : "");
+
+  distTable(s);
+  cmpTable(s);
+
+  $("trendPick").innerHTML = s.metrics.map(m =>
+    `<option value="${m.name}">${m.name}</option>`).join("");
+  $("trendPick").onchange = () => trend($("trendPick").value);
+  trend(s.metrics[0].name);
+
+  $("pick").innerHTML = S.serves.map(v =>
+    `<option value="${v.serve}">#${v.serve}　${v.result}</option>`).join("");
+  $("pick").onchange = () => showServe(parseInt($("pick").value));
+  await showServe(S.serves[0].serve);
+
+  $("scrub").oninput = () => { playing = false; $("play").textContent = "▶ 再生";
+                               setFrame($("scrub").value); };
+  $("play").onclick = () => { playing = !playing;
+                              $("play").textContent = playing ? "⏸ 停止" : "▶ 再生"; };
+
+  let prev = 0, acc = 0;
+  function loop(now) {
+    const dt = Math.min((now - prev) / 1000, 0.1); prev = now;
+    if (playing && pane) {
+      acc += dt * S.fps * 0.25;                 // 1/4 速。60fps を等倍で見ても速すぎる
+      if (acc >= 1) { setFrame((frame + Math.floor(acc)) % pane.frames); acc %= 1; }
+    }
+    if (pane) pane.render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+  window.__session = { get pane() { return pane; }, S };
+}
+
+main();
+</script>

@@ -39,6 +39,10 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# 同じ tools/ の中を素の名前で import している。スクリプトとして
+# 走らせるときは通るが、tools.make_session として import されると
+# 通らない（テストがこれで落ちた）。明示的に足しておく。
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import analysis  # noqa: E402
 from analysis.serve import (  # noqa: E402

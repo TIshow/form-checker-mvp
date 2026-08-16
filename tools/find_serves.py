@@ -163,7 +163,82 @@ def segments(sig: np.ndarray, dt: float, pct: float,
             for i in sorted(taken)]
 
 
-def contact_sheet(path: str, segs, out_png: str, cols: int = 8) -> None:
+def read_labels(csv_path: str, video: str | None = None) \
+        -> list[tuple[float, float]]:
+    """人が編集した labels.csv から区間を読む。
+
+    検出は完璧にならない（実測で40本中10本が誤検出、さらに2本取りこぼし）。
+    直し方を用意しておかないと、間違った窓は「消す」しかなくなる。**サーブは
+    存在するのに窓がずれているだけ**のことがあるので、消すのは最後の手段。
+
+    CSV を正本にすれば、start_s / end_s を書き換える・行を消す・行を足す、
+    のどれでもできる。in/out の記録欄と同じ場所なので、目で見ながら一度に直せる。
+    """
+    import csv
+
+    out = []
+    with open(csv_path, encoding="utf-8") as f:
+        for row in csv.DictReader(l for l in f if not l.startswith("#")):
+            # 複数の動画が混ざるので、いま処理している動画の行だけを取る
+            if video and row.get("video") and row["video"] != video:
+                continue
+            try:
+                out.append((float(row["start_s"]), float(row["end_s"])))
+            except (KeyError, ValueError, TypeError):
+                continue
+    return sorted(out)
+
+
+def extract(path: str, segs, out_dir: str, start_index: int = 1) -> None:
+    """各区間を個別の mp4 にする。
+
+    復元へ投げる前に「窓が妥当か」を目で確かめる用。同時に、1本ずつ見ながら
+    入った/入らなかったを記録できる（結果の記録は issue #10 の要）。
+    再エンコードするのは、コピーだとキーフレーム境界までしか切れないため。
+    """
+    import subprocess
+
+    import imageio_ffmpeg
+
+    ff = imageio_ffmpeg.get_ffmpeg_exe()
+    d = Path(out_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    for i, (s, e) in enumerate(segs, start_index):
+        out = d / f"serve_{i:02d}.mp4"
+        subprocess.run([ff, "-y", "-v", "error", "-ss", f"{s:.2f}", "-i", path,
+                        "-t", f"{e - s:.2f}", "-c:v", "libx264", "-preset",
+                        "veryfast", "-an", str(out)], check=True)
+    last = start_index + len(segs) - 1
+    print(f"✅ {d}/serve_{start_index:02d}.mp4 … serve_{last:02d}.mp4  ({len(segs)}本)")
+
+    # in/out を書き込む雛形。人が編集する前提なので素朴な形にする。
+    # CSV は1つにまとめる。撮影が複数本に分かれても video 列で見分ける。
+    # 既にある行は**書き換えない**（記入済みのラベルを消さないため）。
+    labels = d / "labels.csv"
+    head = ["# result 欄に in / fault などを記入。サーブでないものは note に Not serve",
+            "# start_s / end_s は video 列の動画での秒数。書き換えれば窓を直せる",
+            "serve,video,start_s,end_s,result,note"]
+    have = set()
+    old: list[str] = []
+    if labels.exists():
+        for ln in labels.read_text(encoding="utf-8").splitlines():
+            if ln.startswith("#") or ln.startswith("serve,"):
+                continue
+            if ln.strip():
+                old.append(ln)
+                have.add(ln.split(",")[0])
+    vid = Path(path).name
+    new = [f"{i},{vid},{s:.2f},{e:.2f},,"
+           for i, (s, e) in enumerate(segs, start_index) if str(i) not in have]
+    if new:
+        labels.write_text("\n".join(head + old + new) + "\n", encoding="utf-8")
+        print(f"✅ {labels}  — {len(new)}行を追記しました。result 欄を記入してください")
+    else:
+        print(f"   {labels} は既に {len(old)}行あります（追記なし）")
+
+
+def contact_sheet(path: str, segs, out_png: str, cols: int = 8,
+                  start_index: int = 1) -> None:
     """各区間の中央のフレームを並べる。本当にサーブかを目で確かめる用。"""
     import imageio.v3 as iio
     from PIL import Image, ImageDraw
@@ -189,7 +264,8 @@ def contact_sheet(path: str, segs, out_png: str, cols: int = 8) -> None:
             continue
         x, y = (i % cols) * w, (i // cols) * (h + 16)
         sheet.paste(Image.fromarray(shots[i]).resize((w, h)), (x, y + 16))
-        d.text((x + 4, y + 2), f"{i+1:02d}  {int(s)//60}:{s%60:04.1f}", fill=(230, 235, 245))
+        d.text((x + 4, y + 2), f"{i+start_index:02d}  {int(s)//60}:{s%60:04.1f}",
+               fill=(230, 235, 245))
     sheet.save(out_png)
 
 
@@ -205,6 +281,12 @@ def main() -> None:
     ap.add_argument("--cache", help="動きの信号の保存先（既定: 動画と同じ場所）")
     ap.add_argument("--rescan", action="store_true",
                     help="キャッシュを無視して動画を読み直す")
+    ap.add_argument("--start-index", type=int, default=1,
+                    help="通し番号の開始。撮影が複数本に分かれているとき用")
+    ap.add_argument("--from-labels", metavar="CSV",
+                    help="検出をやり直さず、編集済みの labels.csv から区間を読む")
+    ap.add_argument("--extract", metavar="DIR",
+                    help="各区間を個別の mp4 に書き出す（目視と in/out 付けに使う）")
     ap.add_argument("--drop", default="",
                     help="外す番号（1始まり、カンマ区切り）。"
                          "--sheet で目視して誤検出を落とす")
@@ -213,6 +295,13 @@ def main() -> None:
     path = os.path.expanduser(args.video)
     import imageio.v3 as iio
     fps = iio.immeta(path, plugin="FFMPEG")["fps"]
+
+    if args.from_labels:
+        segs = read_labels(os.path.expanduser(args.from_labels),
+                           video=Path(path).name)
+        print(f"{path}\n  {args.from_labels} から {len(segs)}本を読みました")
+        _report(segs, args, path, fps, pct=None)
+        return
 
     # 動画の全復号に数分かかる。しきい値や余白を変えて試したいだけのときに
     # 毎回やり直すのは無駄なので、動きの信号を横に置いておく。
@@ -236,7 +325,8 @@ def main() -> None:
 
     if args.expect:
         best, bestd = None, 1e9
-        for pct in np.arange(70, 97, 0.5):
+        # 下限を70にしていたら、本数が足りない動画で張り付いた。広く探す。
+        for pct in np.arange(40, 97, 0.5):
             segs = segments(sig, dt, pct)
             d = abs(len(segs) - args.expect)
             if d < bestd:
@@ -254,11 +344,15 @@ def main() -> None:
         print(f"  除外: {sorted(bad)} → {len(segs)}本 から {len(kept)}本")
         segs = kept
 
+    _report(segs, args, path, fps, pct)
+
+
+def _report(segs, args, path, fps, pct) -> None:
     durs = np.array([e - s for s, e in segs])
     print(f"\n{len(segs)}本  長さ 中央{np.median(durs):.1f}秒 "
           f"[{durs.min():.1f}〜{durs.max():.1f}]  合計{durs.sum()/60:.1f}分\n")
-    for i, (s, e) in enumerate(segs):
-        print(f"  {i+1:2d}  {int(s)//60}:{s%60:05.2f} 〜 {int(e)//60}:{e%60:05.2f}"
+    for i, (s, e) in enumerate(segs, args.start_index):
+        print(f"  {i:2d}  {int(s)//60}:{s%60:05.2f} 〜 {int(e)//60}:{e%60:05.2f}"
               f"  ({e-s:.1f}秒)")
 
     if args.json:
@@ -268,9 +362,12 @@ def main() -> None:
             ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"\n✅ {args.json}")
 
+    if args.extract:
+        extract(path, segs, args.extract, args.start_index)
+
     if args.sheet:
         print("一覧画像を作っています…")
-        contact_sheet(path, segs, args.sheet)
+        contact_sheet(path, segs, args.sheet, start_index=args.start_index)
         print(f"✅ {args.sheet}  — 本当にサーブか目で確かめてください")
 
 
