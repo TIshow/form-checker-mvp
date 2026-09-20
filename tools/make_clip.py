@@ -123,8 +123,10 @@ def build(joints_path: str, fps: float, domain: str, label: str,
         a, _, b = level_from.partition(":")
         level_window = (float(a) - start, float(b) - start)   # 動画秒 → 関節の秒
     is_camera = (coords or ("camera" if Path(joints_path).name.startswith("s3_") else "world")) == "camera"
-    # カメラ空間の復元は並進がゆらぐので、既定で接地足を固定する（core/anchor.py）
-    use_anchor = is_camera if anchor is None else anchor
+    # 既定で接地足を固定する（core/anchor.py）: カメラ空間の復元（s3_）は並進が
+    # ゆらぎ、GEM-X（gx_）は世界座標だが足が滑る（ゴルフで 62cm。GVHMR は 8cm）。
+    # 論文どおり GEM-X の弱点は世界座標化の段（issue 009）。
+    use_anchor = (is_camera or Path(joints_path).name.startswith("gx_")) if anchor is None else anchor
     res = analysis.analyze_json(J, fps, domain, smooth_to_fps, level_window, use_anchor)
     res["anchored"] = bool(use_anchor)
     m = res["metrics"]

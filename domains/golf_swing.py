@@ -42,7 +42,7 @@ class GolfSwing(NotImplementedDomain):
     label = "ゴルフ スイング（指標のみ）"
     chain_min_fps = DEFAULT_CHAIN_MIN_FPS
     headline = ("x_factor_at_top_deg", "head_move_cm", "spine_tilt_change_deg",
-                "tempo_ratio", "lead_knee_at_impact_deg")
+                "tempo_ratio", "lead_knee_at_impact_deg", "grip_spread_sd_cm")
     #: 重心グラフはダウンスイング（トップ→インパクト）を見たい
     plot_phases = ("top", "impact")
     metric_labels = {
@@ -51,6 +51,7 @@ class GolfSwing(NotImplementedDomain):
         "spine_tilt_change_deg": ("前傾の変化", "°", 0, "アドレス→インパクト"),
         "tempo_ratio": ("テンポ比", "", 2, "バックスイング:ダウンスイング"),
         "lead_knee_at_impact_deg": ("インパクトのリード膝", "°", 0, "大きいほど伸びている"),
+        "grip_spread_sd_cm": ("両手首の距離のばらつき", "cm", 1, "復元の健全性。大きいと腕が崩れている"),
     }
     phase_labels = {"address": "アドレス", "takeaway": "テイクバック",
                     "top": "トップ", "impact": "インパクト（代用）",
@@ -192,9 +193,18 @@ class GolfSwing(NotImplementedDomain):
         # 1フレームに丸めて「2.1」のような妥当に見える数字を出さない。
         tempo = back_s / down_s if down_s > 0 and back_s > 0 else float("nan")
 
+        # 両手首の距離。**グリップを握っている間は一定（10〜15cm）のはず。**
+        # 復元が腕を崩したかを見る健全性の指標で、フォームの指標ではない。
+        # 実測（同じスイング）: GVHMR 15±5cm、SAM 3D Body 13±7cm、GEM-X 25±21cm——
+        # GEM-X は手が離れ、テニスでラケットドロップが消えたのと同じ種類の崩れ。
+        grip = np.linalg.norm(kin.J[:, L_WRIST] - kin.J[:, R_WRIST], axis=-1)
+        grip_seg = grip[addr : impact + 1]
+
         return {
             "domain": self.name,
             "lead_side": kin.side,
+            "grip_spread_mean_cm": float(grip_seg.mean() * 100),
+            "grip_spread_sd_cm": float(grip_seg.std() * 100),
             "fps": fps,
             "n_frames": kin.F,
             "phases": phases,
