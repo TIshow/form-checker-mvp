@@ -22,7 +22,7 @@ import numpy as np
 
 import domains
 from core import Kinematics
-from core.filter import temporal_smooth, window_for
+from core.filter import level_from_upright, temporal_smooth, window_for
 
 __all__ = [
     "analyze", "analyze_json", "analyze_from_files",
@@ -31,7 +31,8 @@ __all__ = [
 
 
 def kinematics_for(joints: np.ndarray, fps: float, domain: str | None = None,
-                   smooth_to_fps: float | None = None):
+                   smooth_to_fps: float | None = None,
+                   level_window: tuple[float, float] | None = None):
     """ドメインに利き側を決めさせて `Kinematics` を組み立てる。
 
     利き側の根拠は競技ごとに違う（サーブ=手首が高く上がる腕、
@@ -41,34 +42,41 @@ def kinematics_for(joints: np.ndarray, fps: float, domain: str | None = None,
     smooth_to_fps  単一画像モデルのジッタ対策。関節列を「この fps 相当」まで
                    時間方向に平滑化してから計測する（`core/filter.py`）。
                    通常速度の映像では窓が1になり何も変わらない。
+    level_window   (開始秒, 終了秒)。この区間で直立している前提で、頭−足首を
+                   鉛直として関節列を回す（カメラの傾きの較正）。
     """
     d = domains.get(domain)
-    joints = temporal_smooth(np.asarray(joints), window_for(fps, smooth_to_fps))
+    joints = np.asarray(joints)
+    if level_window is not None:
+        joints, _ = level_from_upright(joints, level_window[0] * fps, level_window[1] * fps)
+    joints = temporal_smooth(joints, window_for(fps, smooth_to_fps))
     return d, Kinematics(joints, fps, side=d.side(joints))
 
 
 def analyze(joints: np.ndarray, fps: float = 30.0,
             domain: str | None = None,
-            smooth_to_fps: float | None = None) -> tuple[dict, list[dict]]:
+            smooth_to_fps: float | None = None,
+            level_window: tuple[float, float] | None = None) -> tuple[dict, list[dict]]:
     """関節データから指標とフィードバックを求める。
 
     joints  (F, 24, 3) SMPL 24関節の world座標 [m]
     他の骨格は `core.convert` で並べ替えてから渡す。
     """
-    d, kin = kinematics_for(joints, fps, domain, smooth_to_fps)
+    d, kin = kinematics_for(joints, fps, domain, smooth_to_fps, level_window)
     metrics = d.measure(kin, d.detect_phases(kin))
     return metrics, d.judge(metrics)
 
 
 def analyze_json(joints: np.ndarray, fps: float = 30.0,
                  domain: str | None = None,
-                 smooth_to_fps: float | None = None) -> dict:
+                 smooth_to_fps: float | None = None,
+                 level_window: tuple[float, float] | None = None) -> dict:
     """Web が返す JSON 化可能な結果。指標・フィードバック・ビューア用の関節列。
 
     3D復元の外（サーバーのCPUやブラウザ）へ渡す境界。numpy を残さず、
     そのまま json.dumps できる形にする。
     """
-    d, kin = kinematics_for(joints, fps, domain, smooth_to_fps)
+    d, kin = kinematics_for(joints, fps, domain, smooth_to_fps, level_window)
     metrics = d.measure(kin, d.detect_phases(kin))
     return {
         "domain": d.name,

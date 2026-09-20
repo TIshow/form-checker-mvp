@@ -50,3 +50,43 @@ def temporal_smooth(joints: np.ndarray, window: int) -> np.ndarray:
         lo, hi = max(0, i - half), min(F, i + half + 1)
         out[i] = (csum[hi] - csum[lo]) / (hi - lo)
     return out
+
+
+# --------------------------------------------------------------------------
+# 水平を取る（カメラの傾きの較正）
+# --------------------------------------------------------------------------
+
+def level_from_upright(joints: np.ndarray, lo: int, hi: int) -> tuple[np.ndarray, float]:
+    """直立している区間 [lo, hi) の頭−足首の向きを鉛直として、関節列全体を回す。
+
+    カメラ空間で返す手法（SAM 3D Body）の「上」はカメラの −Y で、スマホを
+    手持ち・立てかけで撮ると 10〜15° 傾く（実測: ゴルフ 14.5°）。前傾角や
+    高さの指標はそのぶんずれる。
+
+    床の平面から法線を出す案は捨てた——足の接地点はほぼ一直線に並ぶので
+    平面が定まらない。代わりに**撮影の最初に1秒、直立して腕を下ろす**という
+    撮り方を決め、その区間の頭−足首を鉛直にする。人の直立は 1〜2° の精度で
+    再現できるので、較正としてはこれで足りる。
+
+    戻り値: (回転後の関節列, 直した角度[deg])。区間が無効なら回さない。
+    """
+    from .skeleton import HEAD, L_ANKLE, R_ANKLE
+    J = np.asarray(joints, dtype=float)
+    lo, hi = max(0, int(lo)), min(len(J), int(hi))
+    if hi - lo < 1:
+        return J, 0.0
+    seg = J[lo:hi]
+    up = (seg[:, HEAD] - (seg[:, L_ANKLE] + seg[:, R_ANKLE]) / 2).mean(0)
+    n = np.linalg.norm(up)
+    if n < 1e-6:
+        return J, 0.0
+    up /= n
+    # 現在の上軸（成分が最大の軸）に up を重ねる回転
+    ax = int(np.argmax(np.abs(up)))
+    target = np.zeros(3); target[ax] = np.sign(up[ax])
+    v = np.cross(up, target); s_ = np.linalg.norm(v); c = float(up @ target)
+    if s_ < 1e-9:
+        return J, 0.0
+    vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    R = np.eye(3) + vx + vx @ vx * ((1 - c) / s_ ** 2)
+    return J @ R.T, float(np.degrees(np.arctan2(s_, c)))

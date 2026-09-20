@@ -174,6 +174,13 @@ python tools/make_clip.py --name opera --domain opera_posture \
     --joints output_opera_s3/s3_joints.npy --fps 30 --smooth-to-fps 10 \
     --video videos/opera/opera_form.mp4 --label "発声姿勢の解析"
 # → http://127.0.0.1:8123/clip.html?clip=opera
+
+python tools/make_clip.py --name golf --domain golf_swing \
+    --joints output_golf_s3/s3_joints.npy --fps 30 \
+    --video videos/golf/golf_form1.mp4 --label "ゴルフスイング解析"
+# → http://127.0.0.1:8123/clip.html?clip=golf
+# スマホ撮影はカメラが 10〜15° 傾く。録画の最初に直立する1秒があれば
+# --level-from 0:1 で水平を取れる（無いと前傾角がそのぶんずれる）
 ```
 
 オペラは局面が無いので、局面ボタンは「開始 / 終了」だけになる。指標はすべて

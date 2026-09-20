@@ -203,6 +203,18 @@ def reconstruct(video_bytes: bytes, name: str,
         src = trimmed
         print(f"[trim] {start}〜{end} 秒を切り出しました")
 
+    # **回転フラグを焼き込む。** iPhone の縦撮りは横向きの画素＋
+    # displaymatrix=-90° で保存されており、フラグを読まないデコーダでは
+    # 90° 倒れた人物を推定して「それらしい間違った数字」を返す
+    # （GVHMR 経路で実際に起きた: 利き手 L、膝 160°、足 −0.99m）。
+    # ffmpeg の再エンコードはフラグを画素に反映してフラグを消す。
+    # フラグの無い動画でも無害なので、常に通す。
+    baked = f"/tmp/{stem}_baked.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src,
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                    "-pix_fmt", "yuv420p", "-an", baked], check=True)
+    src = baked
+
     video_fps = _probe_fps(src)
 
     from sam_3d_body import SAM3DBodyEstimator, load_sam_3d_body

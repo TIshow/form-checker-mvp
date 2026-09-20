@@ -200,6 +200,16 @@ def _gvhmr_joints(video_bytes: bytes, name: str,
     with open(src, "wb") as f:
         f.write(video_bytes)
 
+    # **回転フラグを焼き込む。** iPhone の縦撮りは横向きの画素＋ displaymatrix で
+    # 保存されている。GVHMR の内部デコーダはフラグを読まず、90° 倒れた人物を
+    # 推定して「それらしい間違った数字」を返した（利き手 L、膝 160°、足 −0.99m）。
+    # 再エンコードでフラグを画素に反映する。フラグの無い動画でも無害。
+    baked = f"inputs/{stem}_baked.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src,
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                    "-pix_fmt", "yuv420p", "-an", baked], check=True)
+    src = baked
+
     if start is not None or end is not None:
         trimmed = f"inputs/{stem}_trim.mp4"
         cmd = ["ffmpeg", "-y", "-i", src]

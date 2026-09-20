@@ -109,7 +109,7 @@ def build(joints_path: str, fps: float, domain: str, label: str,
           video: str | None, out: Path, max_width: int = 1280,
           playback_fps: float | None = None, start: float = 0.0,
           smooth_to_fps: float | None = None, coords: str | None = None,
-          end: float | None = None) -> dict:
+          end: float | None = None, level_from: str | None = None) -> dict:
     J = np.load(joints_path)
     if end is not None:
         # 解析に使う範囲を末尾で切る（動画は切らない）。関節のフレーム i は
@@ -117,7 +117,11 @@ def build(joints_path: str, fps: float, domain: str, label: str,
         n = int(round((end - start) * (playback_fps or fps)))
         J = J[: max(n, 3)]
     d = domains.get(domain)
-    res = analysis.analyze_json(J, fps, domain, smooth_to_fps)
+    level_window = None
+    if level_from:
+        a, _, b = level_from.partition(":")
+        level_window = (float(a) - start, float(b) - start)   # 動画秒 → 関節の秒
+    res = analysis.analyze_json(J, fps, domain, smooth_to_fps, level_window)
     m = res["metrics"]
     ph = m.get("phases", {})
 
@@ -184,6 +188,9 @@ def main() -> None:
     ap.add_argument("--end", type=float, default=None,
                     help="元動画の何秒目までを解析に使うか（動画は切らない。スロー再生が"
                          "途中で実速度に戻る映像などで、末尾を外すため）")
+    ap.add_argument("--level-from", default=None, metavar="開始:終了",
+                    help="この区間（動画の秒）で直立している前提で水平を取る。"
+                         "スマホ撮影のカメラの傾き（10〜15°）を較正する")
     ap.add_argument("--coords", choices=("camera", "world"), default=None,
                     help="関節の座標系。省略時は s3_ 接頭辞なら camera、それ以外は world")
     ap.add_argument("--smooth-to-fps", type=float, default=None,
@@ -201,7 +208,8 @@ def main() -> None:
     d = domains.get(args.domain)
     res = build(args.joints, args.fps, args.domain,
                 args.label or d.label, args.video, out, args.max_width,
-                args.playback_fps, args.start, args.smooth_to_fps, args.coords, args.end)
+                args.playback_fps, args.start, args.smooth_to_fps, args.coords, args.end,
+                args.level_from)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(sanitize(res), ensure_ascii=False, allow_nan=False),

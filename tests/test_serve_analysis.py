@@ -173,16 +173,20 @@ def _golf_swing(n=90, idle=0, finish_high=True):
     J[:, [2, 5, 8, 11, 14, 17], 0] = 0.18
 
     t = np.clip((np.arange(F) - idle) / max(n - 1, 1), 0, 1)
-    top_t, imp_t = 0.35, 0.65
+    # ダウンスイングが最も速い（実際のスイングと同じ）。ここが最速でないと
+    # 「手の最高速＝インパクト」の代用が成り立たない
+    top_t, imp_t = 0.35, 0.55
     top_h, imp_h = 1.70, 0.78
     fin_h = 2.00 if finish_high else 1.50
     h = np.where(t <= top_t, 0.80 + (top_h - 0.80) * (t / top_t),
         np.where(t <= imp_t, top_h - (top_h - imp_h) * ((t - top_t) / (imp_t - top_t)),
                  imp_h + (fin_h - imp_h) * ((t - imp_t) / (1 - imp_t))))
     h[:idle] = 0.80
+    # フォロースルーで手は左肩（リード側）の上へ。side() はここを見る
+    side_shift = np.where(t > imp_t, -0.30 * (t - imp_t) / (1 - imp_t), 0.0)
     for w, dx in ((20, -.10), (21, .10), (22, -.12), (23, .12)):
         J[:, w, 1] = h
-        J[:, w, 0] = dx
+        J[:, w, 0] = dx + side_shift
     # トップまでは左腕(リード)が伸び右肘が曲がる。フィニッシュでは入れ替わる
     lead = t <= imp_t
     J[:, 18, 1] = np.where(lead, (J[:, 16, 1] + J[:, 20, 1]) / 2,

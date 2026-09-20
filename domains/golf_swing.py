@@ -29,9 +29,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from core import Kinematics, joint_angle
+from core import Kinematics, joint_angle, smooth
 from core.skeleton import (
-    HEAD, L_ANKLE, L_ELBOW, L_FOOT, L_HIP, L_KNEE, L_SHOULDER, L_WRIST,
+    HEAD, PELVIS, L_ANKLE, L_ELBOW, L_FOOT, L_HIP, L_KNEE, L_SHOULDER, L_WRIST,
     R_ANKLE, R_ELBOW, R_FOOT, R_HIP, R_KNEE, R_SHOULDER, R_WRIST,
 )
 from domains.base import DEFAULT_CHAIN_MIN_FPS, NotImplementedDomain
@@ -47,7 +47,7 @@ class GolfSwing(NotImplementedDomain):
     plot_phases = ("top", "impact")
     metric_labels = {
         "x_factor_at_top_deg": ("トップの捻転差", "°", 0, "位置ベース・弱い指標"),
-        "head_move_cm": ("頭の上下動", "cm", 1, "小さいほど軸が安定"),
+        "head_move_cm": ("頭の上下動", "cm", 1, "足元基準。小さいほど軸が安定"),
         "spine_tilt_change_deg": ("前傾の変化", "°", 0, "アドレス→インパクト"),
         "tempo_ratio": ("テンポ比", "", 2, "バックスイング:ダウンスイング"),
         "lead_knee_at_impact_deg": ("インパクトのリード膝", "°", 0, "大きいほど伸びている"),
@@ -61,6 +61,9 @@ class GolfSwing(NotImplementedDomain):
         "トップ・フィニッシュの検出を実際のスイング映像で検証する"
         "（手の高さだけで決めているので、手を上げない練習スイングでは崩れる）",
         "捻転差を位置ベースでなく体節の軸回転として測る手段（issue 011 §「軸回転」）",
+        "カメラの傾きの較正。スマホを手持ち・立てかけで撮ると 10〜15° 傾く"
+        "（実測 14.5°）。前傾角はそのぶんずれる。撮影の最初に直立する1秒を入れ、"
+        "`--level-from` で水平を取る（videos/README.md）",
         "各指標のプロの実測レンジを、本文を開いて確認した出典で（セクション・図番号まで）",
         "自分の複数スイングでの測定ばらつき（CV）。テニスは 打点高1% / 足の浮き42% だった",
     )
@@ -68,14 +71,21 @@ class GolfSwing(NotImplementedDomain):
     def side(self, joints: np.ndarray) -> str:
         """**リード側**（右打ちなら左）を返す。テニスの「ラケット側」とは意味が違う。
 
-        根拠: トップでリード腕は伸び、トレール肘は曲がる。両手でクラブを
-        握るため、テニスの「手首が高く上がる方」は使えない。
-        これは近似であり、アドレスの向きから決める方が確実。
+        根拠: フォロースルーで手（とクラブ）はリード側の肩の上に巻き付く。
+        フィニッシュのフレームで、手が骨盤から見て左右どちらの肩の側に
+        あるかを見る。
+
+        「トップで伸びている方の腕がリード」も試したが、実映像では両肘が
+        152° と 157° のようにほぼ同じで、判定が不安定だった（右打ちの
+        ゴルファーを右リードと誤判定）。フィニッシュの手の位置の方が
+        左右差が大きく、動作の定義そのものに近い。
         """
-        top = self._top_frame(joints)
-        le = joint_angle(joints[:, L_SHOULDER], joints[:, L_ELBOW], joints[:, L_WRIST])
-        re = joint_angle(joints[:, R_SHOULDER], joints[:, R_ELBOW], joints[:, R_WRIST])
-        return "L" if le[top] >= re[top] else "R"
+        fps = 30.0
+        _, _, _, finish = GolfSwing._frames(
+            GolfSwing._hand_height(joints), GolfSwing._hand_speed(joints, fps), fps)
+        hands = (joints[finish, L_WRIST] + joints[finish, R_WRIST]) / 2
+        lr = joints[finish, R_SHOULDER] - joints[finish, L_SHOULDER]   # 左→右
+        return "R" if float((hands - joints[finish, PELVIS]) @ lr) > 0 else "L"
 
     @staticmethod
     def _hand_height(joints: np.ndarray) -> np.ndarray:
@@ -85,36 +95,34 @@ class GolfSwing(NotImplementedDomain):
         return ((joints[:, L_WRIST] + joints[:, R_WRIST]) / 2)[:, ax] * sg
 
     @staticmethod
-    def _frames(hands: np.ndarray) -> tuple[int, int, int, int]:
+    def _frames(hands_h: np.ndarray, hand_speed: np.ndarray, fps: float
+                ) -> tuple[int, int, int, int]:
         """(テイクバック, トップ, インパクト, フィニッシュ)。
 
         **順番が大事。先にインパクトを決める。**
 
-        手の高さだけを見て「最も高い＝トップ」としてはいけない。ゴルフの
-        フィニッシュは手がトップと同じか**それ以上に上がる**（ドライバーなら
-        頭上に来る）ので、クリップ全体の argmax はフィニッシュを拾う。
-        そうなるとトップ＝インパクト＝フィニッシュが同じフレームに潰れ、
-        リード側の判定まで裏返る（トップでは伸びているのがリード腕だが、
-        フィニッシュでは左右が入れ替わるため）。
+        インパクト = **手が最も速いフレーム**（平滑化後）。
+        「手が最も低いフレーム」で代用しようとして失敗した: 手はアドレスでも
+        同じくらい低く、構えて待つ 2〜3秒の間の揺れが最低点になって、
+        インパクトが構えの途中に飛んだ（実映像で f47。正解は f82）。
+        ダウンスイングの手の速度は他のどの局面よりずっと速いので、
+        速度なら構えの揺れに引きずられない。
 
-        なので、
-          インパクト   = 両端を除いた区間で手が最も低いフレーム
-          トップ       = その**手前**で手が最も高いフレーム
-          フィニッシュ = その**後**で手が最も高いフレーム
-          テイクバック = トップの手前で手が**最後に**最低位置にいたフレーム
-                         （前に立っているだけの映像がどれだけ付いていても、
-                           バックスイングの長さが伸びないようにする。
-                           最初の最低位置ではなく最後を採るのがポイント——
-                           アドレスで構えている間は高さが変わらないので、
-                           argmin だと必ず先頭が返ってしまう）
+        トップ = インパクトの直前 1.5秒で手が最も高いフレーム。
+        クリップ全体の最高点だとフィニッシュを拾う（手はトップと同等以上に
+        上がる）。インパクトの手前に窓を切れば、その中の最高点はトップしかない。
+
+        フィニッシュ = インパクト以降で手が最も高いフレーム。
+        テイクバック = トップ手前で手が最後に最低位置にいたフレーム。
         """
-        F = len(hands)
+        F = len(hands_h)
         if F < 4:
             return 0, 0, max(F - 1, 0), max(F - 1, 0)
-        impact = 1 + int(np.argmin(hands[1:F - 1]))
-        top = int(np.argmax(hands[:impact])) if impact > 0 else 0
-        finish = impact + int(np.argmax(hands[impact:]))
-        return GolfSwing._takeaway(hands, top), top, impact, finish
+        impact = int(np.argmax(hand_speed))
+        lo = max(0, impact - int(round(1.5 * fps)))
+        top = lo + int(np.argmax(hands_h[lo:impact + 1])) if impact > lo else impact
+        finish = impact + int(np.argmax(hands_h[impact:]))
+        return GolfSwing._takeaway(hands_h, top), top, impact, finish
 
     @staticmethod
     def _takeaway(hands: np.ndarray, top: int, tol: float = 0.02) -> int:
@@ -134,17 +142,25 @@ class GolfSwing(NotImplementedDomain):
         return int(at_low[-1]) if len(at_low) else 0
 
     @staticmethod
-    def _top_frame(joints: np.ndarray) -> int:
-        return GolfSwing._frames(GolfSwing._hand_height(joints))[1]
+    def _hand_speed(joints: np.ndarray, fps: float) -> np.ndarray:
+        hands = (joints[:, L_WRIST] + joints[:, R_WRIST]) / 2
+        v = np.concatenate([[0.0], np.linalg.norm(np.diff(hands, axis=0), axis=-1)]) * fps
+        return smooth(v, 3)
+
+    @staticmethod
+    def _top_frame(joints: np.ndarray, fps: float = 30.0) -> int:
+        hands_h = GolfSwing._hand_height(joints)
+        return GolfSwing._frames(hands_h, GolfSwing._hand_speed(joints, fps), fps)[1]
 
     def detect_phases(self, kin: Kinematics) -> dict[str, int]:
         """アドレス → テイクバック → トップ → インパクト（代用） → フィニッシュ。
 
-        **インパクトはクラブを見ずに決めている。** 手が最も低くなるフレームを
+        **インパクトはクラブを見ずに決めている。** 手が最も速いフレームを
         使う代用値で、真のインパクトではない。issue 006 が入るまでここは近似。
         """
+        hands_h = kin.height((kin.J[:, L_WRIST] + kin.J[:, R_WRIST]) / 2)
         takeaway, top, impact, finish = self._frames(
-            kin.height((kin.J[:, L_WRIST] + kin.J[:, R_WRIST]) / 2))
+            hands_h, self._hand_speed(kin.J, kin.fps), kin.fps)
         return {"address": 0, "takeaway": takeaway, "top": top,
                 "impact": impact, "finish": finish}
 
@@ -153,7 +169,11 @@ class GolfSwing(NotImplementedDomain):
         addr, takeaway = phases["address"], phases["takeaway"]
         fps = kin.fps
 
-        head_h = kin.height(kin.J[:, HEAD])
+        # 頭の高さは**足元（両足首の中点）基準**。カメラ空間で返す手法は
+        # フレームごとに体全体が数cm並進して見えるので、絶対高さだと
+        # それが「頭の上下動」に化ける（実測: GVHMR 1.2cm に対し 11cm）。
+        base = (kin.J[:, L_ANKLE] + kin.J[:, R_ANKLE]) / 2
+        head_h = kin.height(kin.J[:, HEAD] - base)
         trunk = kin.trunk_lean()
         knee_l = joint_angle(kin.J[:, L_HIP], kin.J[:, L_KNEE], kin.J[:, L_ANKLE])
         knee_r = joint_angle(kin.J[:, R_HIP], kin.J[:, R_KNEE], kin.J[:, R_ANKLE])
