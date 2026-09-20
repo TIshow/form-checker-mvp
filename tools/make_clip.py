@@ -81,6 +81,30 @@ def copy_video(src: Path, dest: Path, max_width: int) -> None:
         shutil.copy2(src, dest)
 
 
+def _check_image_x(joints_path: Path, J: np.ndarray) -> None:
+    """生カメラ座標の x が画像の左右と同じ向きかを、人物検出の箱で検算する。
+
+    表示側は「被写体はカメラの +Z 側（OpenCV）」を前提に視点を置いている。
+    一度この向きを取り違えて左右逆のデモを作った。箱（画像座標）があれば
+    骨盤 x の増減と箱中心の増減の相関で機械的に確かめられる。
+    """
+    bp = joints_path.with_name(joints_path.name.replace("joints", "boxes"))
+    if not bp.exists():
+        return
+    boxes = np.load(bp)
+    n = min(len(boxes), len(J))
+    cx = (boxes[:n, 0] + boxes[:n, 2]) / 2
+    px = J[:n, 0, 0]
+    if cx.std() < 1.0 or px.std() < 1e-3:
+        return                                   # ほぼ動いていない。判定不能
+    r = float(np.corrcoef(cx, px)[0, 1])
+    if r < 0:
+        raise SystemExit(
+            f"生座標の x と画像の x が逆向きです（相関 {r:+.2f}）。"
+            "表示の左右が反転します。復元手法の座標系の慣習を確認してください")
+    print(f"   向きの検算: 生x と 画像x の相関 {r:+.2f}（同符号。左右は映像と一致）")
+
+
 def build(joints_path: str, fps: float, domain: str, label: str,
           video: str | None, out: Path, max_width: int = 1280,
           playback_fps: float | None = None, start: float = 0.0,
@@ -97,6 +121,8 @@ def build(joints_path: str, fps: float, domain: str, label: str,
     # 復元ファイルの接頭辞から推定し（s3_=SAM 3D Body はカメラ空間）、
     # --coords で上書きできる。
     res["coords"] = coords or ("camera" if Path(joints_path).name.startswith("s3_") else "world")
+    if res["coords"] == "camera":
+        _check_image_x(Path(joints_path), J)
     # スロー映像は「撮影fps」と「再生fps」が違う。指標は撮影fpsで計算し、
     # 動画の同期は再生fpsで行う。混ぜると動画が10倍速で走るか止まるかする。
     res["video_fps"] = playback_fps or fps

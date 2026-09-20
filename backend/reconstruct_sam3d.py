@@ -293,9 +293,14 @@ def reconstruct(video_bytes: bytes, name: str,
     np.save(jbuf, joints)
     kbuf = io.BytesIO()
     np.save(kbuf, kp)          # 手と顔を含む生のキーポイント（issue 006 用）
+    bbuf = io.BytesIO()
+    # 画像上の箱 (F,4) xyxy。生座標の x と画像の x の向きが同じかを検算できる
+    # （骨盤の x の増減と箱の中心の増減が同符号なら OpenCV 慣習で合っている）。
+    np.save(bbuf, boxes.astype(np.float32))
     return {
         "s3_joints.npy": jbuf.getvalue(),
         "s3_mhr_keypoints.npy": kbuf.getvalue(),
+        "s3_boxes.npy": bbuf.getvalue(),
         "_fps": str(video_fps or ""),
         "_missing": str(len(missing)),
         "_lost": str(lost),
