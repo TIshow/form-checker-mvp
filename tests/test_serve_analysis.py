@@ -575,6 +575,37 @@ def test_swing_finds_plant_and_contact():
     assert abs(m["stride_m"] - 0.30) < 0.06
 
 
+# ---------------------------------------------------------------------------
+# 接地足の固定（単一画像モデルの並進のゆらぎ）
+# ---------------------------------------------------------------------------
+
+def test_anchor_removes_translation_jitter_but_keeps_pose():
+    """立っているだけの人に並進ノイズを足しても、足が滑らず、姿勢は変わらないこと。"""
+    from core.anchor import anchor_feet
+    from core import Kinematics
+    rng = np.random.default_rng(1)
+    J = _standing(np.zeros((60, 3)))
+    noisy = J + rng.normal(scale=0.03, size=(60, 1, 3))      # 体全体が毎フレーム 3cm 揺れる
+    fixed, d = anchor_feet(noisy)
+    assert d["slide_before_m"] > 1.0
+    assert d["slide_after_m"] < 0.02, d
+    # 姿勢（関節角）は保たれる
+    a, b = Kinematics(noisy, 30.0), Kinematics(fixed, 30.0)
+    assert np.allclose(a.knee_angles(), b.knee_angles(), atol=1.5)
+    assert np.allclose(a.trunk_lean(), b.trunk_lean(), atol=0.5)
+
+
+def test_anchor_keeps_a_real_stride():
+    """踏み出しは残ること。接地足に対するもう片方の足の移動が踏み出し幅。"""
+    from core.anchor import anchor_feet
+    J, lift, contact, release, fps = _pitch()
+    fixed, _ = anchor_feet(J)
+    m_raw, _ = analysis.analyze(J, fps, "baseball_pitch")
+    m_fix, _ = analysis.analyze(fixed, fps, "baseball_pitch")
+    assert abs(m_fix["stride_m"] - m_raw["stride_m"]) < 0.05
+    assert abs(m_fix["phases"]["release"] - m_raw["phases"]["release"]) <= 1
+
+
 def test_soma_mapping_rejects_unknown_joint_count():
     import numpy as np
     import pytest

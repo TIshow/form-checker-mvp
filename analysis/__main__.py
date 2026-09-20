@@ -27,6 +27,8 @@ def main() -> None:
                    help=f"競技。{' / '.join(domains.names())}")
     p.add_argument("--smooth-to-fps", type=float, default=None,
                    help="関節列をこの fps 相当まで平滑化してから計測（単一画像モデルのスロー映像向け）")
+    p.add_argument("--anchor", action="store_true",
+                   help="接地足を固定して並進のゆらぎを止める（カメラ空間の復元向け）")
     p.add_argument("--top", type=int, default=2, help="提示する指摘の件数")
     p.add_argument("--save", metavar="DIR", help="レポートとグラフの保存先")
     p.add_argument("--list", action="store_true", help="使えるドメインを表示して終了")
@@ -38,7 +40,7 @@ def main() -> None:
         return
 
     d, kin = analysis.kinematics_for(np.load(args.joints), args.fps, args.domain,
-                                     args.smooth_to_fps)
+                                     args.smooth_to_fps, anchor=args.anchor)
     phases = d.detect_phases(kin)
     metrics = d.measure(kin, phases)
     feedback = d.judge(metrics)

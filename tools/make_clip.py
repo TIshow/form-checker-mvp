@@ -109,7 +109,8 @@ def build(joints_path: str, fps: float, domain: str, label: str,
           video: str | None, out: Path, max_width: int = 1280,
           playback_fps: float | None = None, start: float = 0.0,
           smooth_to_fps: float | None = None, coords: str | None = None,
-          end: float | None = None, level_from: str | None = None) -> dict:
+          end: float | None = None, level_from: str | None = None,
+          anchor: bool | None = None) -> dict:
     J = np.load(joints_path)
     if end is not None:
         # 解析に使う範囲を末尾で切る（動画は切らない）。関節のフレーム i は
@@ -121,7 +122,11 @@ def build(joints_path: str, fps: float, domain: str, label: str,
     if level_from:
         a, _, b = level_from.partition(":")
         level_window = (float(a) - start, float(b) - start)   # 動画秒 → 関節の秒
-    res = analysis.analyze_json(J, fps, domain, smooth_to_fps, level_window)
+    is_camera = (coords or ("camera" if Path(joints_path).name.startswith("s3_") else "world")) == "camera"
+    # カメラ空間の復元は並進がゆらぐので、既定で接地足を固定する（core/anchor.py）
+    use_anchor = is_camera if anchor is None else anchor
+    res = analysis.analyze_json(J, fps, domain, smooth_to_fps, level_window, use_anchor)
+    res["anchored"] = bool(use_anchor)
     m = res["metrics"]
     ph = m.get("phases", {})
 
@@ -191,6 +196,10 @@ def main() -> None:
     ap.add_argument("--level-from", default=None, metavar="開始:終了",
                     help="この区間（動画の秒）で直立している前提で水平を取る。"
                          "スマホ撮影のカメラの傾き（10〜15°）を較正する")
+    ap.add_argument("--anchor", dest="anchor", action="store_true", default=None,
+                    help="接地足を固定する（カメラ空間の復元では既定でオン）")
+    ap.add_argument("--no-anchor", dest="anchor", action="store_false",
+                    help="接地足の固定をしない")
     ap.add_argument("--coords", choices=("camera", "world"), default=None,
                     help="関節の座標系。省略時は s3_ 接頭辞なら camera、それ以外は world")
     ap.add_argument("--smooth-to-fps", type=float, default=None,
@@ -209,7 +218,7 @@ def main() -> None:
     res = build(args.joints, args.fps, args.domain,
                 args.label or d.label, args.video, out, args.max_width,
                 args.playback_fps, args.start, args.smooth_to_fps, args.coords, args.end,
-                args.level_from)
+                args.level_from, args.anchor)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(sanitize(res), ensure_ascii=False, allow_nan=False),

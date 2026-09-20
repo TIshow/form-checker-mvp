@@ -89,10 +89,10 @@ class GolfSwing(NotImplementedDomain):
 
     @staticmethod
     def _hand_height(joints: np.ndarray) -> np.ndarray:
-        """両手首の中点の高さ。上軸を知らない段階でも使えるよう素で計算する。"""
+        """両手首の中点の高さ（骨盤相対）。上軸を知らない段階でも使えるよう素で計算する。"""
         from core import detect_up_axis
         ax, sg = detect_up_axis(joints)
-        return ((joints[:, L_WRIST] + joints[:, R_WRIST]) / 2)[:, ax] * sg
+        return ((joints[:, L_WRIST] + joints[:, R_WRIST]) / 2 - joints[:, PELVIS])[:, ax] * sg
 
     @staticmethod
     def _frames(hands_h: np.ndarray, hand_speed: np.ndarray, fps: float
@@ -122,28 +122,27 @@ class GolfSwing(NotImplementedDomain):
         lo = max(0, impact - int(round(1.5 * fps)))
         top = lo + int(np.argmax(hands_h[lo:impact + 1])) if impact > lo else impact
         finish = impact + int(np.argmax(hands_h[impact:]))
-        return GolfSwing._takeaway(hands_h, top), top, impact, finish
+        return GolfSwing._takeaway(hand_speed, top), top, impact, finish
 
     @staticmethod
-    def _takeaway(hands: np.ndarray, top: int, tol: float = 0.02) -> int:
-        """手が上がり始めるフレーム。トップ手前で最低位置にいた**最後**の1枚。
+    def _takeaway(hand_speed: np.ndarray, top: int, frac: float = 0.10) -> int:
+        """手が動き始めるフレーム。トップの手前で、手の速さが最後に小さかった次。
 
-        tol はバックスイングの振幅に対する比。アドレスの静止中は高さが
-        ぴったり同じとは限らないので、厳密な最小値ではなく幅を持たせる。
+        以前は手の高さの「最低位置にいた最後の1枚」で取っていたが、構えて待つ
+        間の揺れ（数cm）に敏感で、基準（床／骨盤）を変えるだけで 82 → 47 と
+        1秒以上ずれた。速さなら、構えの揺れ（ピークの数%）とバックスイング
+        （20〜30%）の間に閾値を置ける。
         """
         if top <= 0:
             return 0
-        pre = hands[: top + 1]
-        low = float(pre.min())
-        rise = float(hands[top]) - low
-        if rise <= 0:
-            return top
-        at_low = np.flatnonzero(pre <= low + tol * rise)
-        return int(at_low[-1]) if len(at_low) else 0
+        thr = frac * float(hand_speed.max())
+        slow = np.flatnonzero(hand_speed[: top + 1] < thr)
+        return int(slow[-1]) + 1 if len(slow) and slow[-1] < top else 0
 
     @staticmethod
     def _hand_speed(joints: np.ndarray, fps: float) -> np.ndarray:
-        hands = (joints[:, L_WRIST] + joints[:, R_WRIST]) / 2
+        # 骨盤相対（体全体の並進のゆらぎを含めない）
+        hands = (joints[:, L_WRIST] + joints[:, R_WRIST]) / 2 - joints[:, PELVIS]
         v = np.concatenate([[0.0], np.linalg.norm(np.diff(hands, axis=0), axis=-1)]) * fps
         return smooth(v, 3)
 
@@ -158,7 +157,10 @@ class GolfSwing(NotImplementedDomain):
         **インパクトはクラブを見ずに決めている。** 手が最も速いフレームを
         使う代用値で、真のインパクトではない。issue 006 が入るまでここは近似。
         """
-        hands_h = kin.height((kin.J[:, L_WRIST] + kin.J[:, R_WRIST]) / 2)
+        # 手の高さは**骨盤相対**。並進のゆらぎ（と床の推定）に影響されない。
+        # ゴルフでは骨盤の上下動が小さいので、トップ・フィニッシュの検出には
+        # これで足りる。
+        hands_h = kin.height((kin.J[:, L_WRIST] + kin.J[:, R_WRIST]) / 2 - kin.J[:, PELVIS])
         takeaway, top, impact, finish = self._frames(
             hands_h, self._hand_speed(kin.J, kin.fps), kin.fps)
         return {"address": 0, "takeaway": takeaway, "top": top,

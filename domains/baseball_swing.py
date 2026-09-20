@@ -27,8 +27,8 @@ import numpy as np
 
 from core import Kinematics, joint_angle, smooth
 from core.skeleton import (
-    FOOT_IDS, HEAD, L_ANKLE, L_HIP, L_KNEE, L_WRIST, R_ANKLE, R_HIP, R_KNEE,
-    R_WRIST,
+    FOOT_IDS, HEAD, L_ANKLE, L_HIP, L_KNEE, L_WRIST, PELVIS, R_ANKLE, R_HIP,
+    R_KNEE, R_WRIST,
 )
 from domains.base import NotImplementedDomain
 
@@ -90,12 +90,15 @@ class BaseballSwing(NotImplementedDomain):
         """
         F = kin.F
         lead = [L_ANKLE] if kin.side == "L" else [R_ANKLE]
-        lead_h = kin.height(kin.J[:, lead[0]])
+        rear_id = R_ANKLE if kin.side == "L" else L_ANKLE
+        # 踏み出し足の高さは**後ろ足に対して**（並進のゆらぎを含めない）
+        lead_h = kin.height(kin.J[:, lead[0]] - kin.J[:, rear_id])
 
-        hands = (kin.J[:, L_WRIST] + kin.J[:, R_WRIST]) / 2
+        # 手の速さは**骨盤相対**（体全体の並進のゆらぎを含めない）。
         # 平滑化してから最速を取る。単一画像モデルは1フレームだけ手が飛ぶことが
         # あり（実測: クリップ末尾のカメラの揺れで 5.8m/s の孤立ピーク）、
         # 生の argmax はそれを「インパクト」にしてしまった。
+        hands = (kin.J[:, L_WRIST] + kin.J[:, R_WRIST]) / 2 - kin.J[:, PELVIS]
         speed = smooth(np.concatenate(
             [[0.0], np.linalg.norm(np.diff(hands, axis=0), axis=-1)]), 3)
         contact = int(np.argmax(speed))
@@ -106,8 +109,10 @@ class BaseballSwing(NotImplementedDomain):
         # 接地 = 足上げ〜インパクトの間で、踏み出す向きの前進が最後に止まった点
         plant = lift
         if contact - lift >= 2:
+            # 前進は**軸足（後ろ足）に対して**測る（並進のゆらぎを含めない）
             hz = [a for a in (0, 1, 2) if a != kin.up_ax]
-            foot_h = kin.J[:, lead[0]][:, hz]
+            rear = R_ANKLE if kin.side == "L" else L_ANKLE
+            foot_h = (kin.J[:, lead[0]] - kin.J[:, rear])[:, hz]
             travel = foot_h[contact] - foot_h[lift]
             n = float(np.linalg.norm(travel))
             if n > 1e-6:
@@ -122,7 +127,8 @@ class BaseballSwing(NotImplementedDomain):
             below = np.flatnonzero(seg[peak:] < FOOT_PLANT_STEP_RATIO * max(seg[peak], 1e-9))
             plant = min(lift + peak + int(below[0]), contact) if len(below) else contact
 
-        finish = contact + int(np.argmax(kin.height(hands)[contact:])) if contact < F - 1 else F - 1
+        hands_abs = (kin.J[:, L_WRIST] + kin.J[:, R_WRIST]) / 2
+        finish = contact + int(np.argmax(kin.height(hands_abs)[contact:])) if contact < F - 1 else F - 1
         return {"stance": 0, "lift": lift, "foot_plant": plant,
                 "contact": contact, "finish": finish}
 

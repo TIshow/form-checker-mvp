@@ -31,7 +31,8 @@ import numpy as np
 
 from core import Kinematics, joint_angle, smooth
 from core.skeleton import (
-    FOOT_IDS, L_ANKLE, L_FOOT, L_HIP, L_KNEE, R_ANKLE, R_FOOT, R_HIP, R_KNEE,
+    FOOT_IDS, L_ANKLE, L_FOOT, L_HIP, L_KNEE, PELVIS, R_ANKLE, R_FOOT, R_HIP,
+    R_KNEE,
 )
 from domains.base import NotImplementedDomain
 
@@ -102,7 +103,9 @@ class BaseballPitch(NotImplementedDomain):
         """
         # 踏み出し足 = 投球腕と反対側
         lead_foot = [L_ANKLE, L_FOOT] if kin.side == "R" else [R_ANKLE, R_FOOT]
-        lf = kin.height(kin.J[:, lead_foot]).min(axis=1)
+        pivot_ankle = R_ANKLE if kin.side == "R" else L_ANKLE
+        # 踏み出し足の高さは**軸足に対して**（並進のゆらぎを含めない）
+        lf = kin.height(kin.J[:, lead_foot] - kin.J[:, pivot_ankle][:, None, :]).min(axis=1)
         lift = int(np.argmax(lf))                       # 足を最も上げたところ
 
         # 接地 = 「速く下りてきた足が止まる」ところ。
@@ -110,8 +113,11 @@ class BaseballPitch(NotImplementedDomain):
         # リリースを先に決める。≒ 手首が最も速いフレーム。**足上げ以降の全体**
         # から探すこと。接地以降に限ると、接地の推定が少し遅れただけで
         # ピークを跨ぎ、接地とリリースが同じフレームに潰れる（実測で起きた）。
+        # 手首の速さは**骨盤相対**で測る。体全体の並進（単一画像モデルでは
+        # フレームごとにゆらぐ）を含めないため。投げる腕の速さは体に対する速さ。
         wr = kin.idx("wrist")
-        speed = smooth(np.linalg.norm(np.diff(kin.J[:, wr], axis=0), axis=-1))
+        wrist_rel = kin.J[:, wr] - kin.J[:, PELVIS]
+        speed = smooth(np.linalg.norm(np.diff(wrist_rel, axis=0), axis=-1))
         speed = np.concatenate([[0.0], speed])
         release = lift + int(np.argmax(speed[lift:])) if lift < kin.F - 1 else kin.F - 1
 
@@ -122,8 +128,11 @@ class BaseballPitch(NotImplementedDomain):
         # 単一画像モデルはそこが最も苦手。大きさを取ると奥行きのジッタが
         # 混じり、止まったあとも動いているように見えた。
         # 踏み出しの向きは「足上げ→リリース」の変位で決める。
+        # 踏み出し足の前進は**軸足に対して**測る。並進のゆらぎに影響されず、
+        # 軸足はリリースまでプレートに着いているので、これが本来のストライド。
         hz = [a for a in (0, 1, 2) if a != kin.up_ax]
-        foot_h = kin.J[:, lead_foot[0]][:, hz]
+        pivot = R_ANKLE if kin.side == "R" else L_ANKLE
+        foot_h = (kin.J[:, lead_foot[0]] - kin.J[:, pivot])[:, hz]
         travel = foot_h[release] - foot_h[lift]
         n = float(np.linalg.norm(travel))
         if n > 1e-6:
