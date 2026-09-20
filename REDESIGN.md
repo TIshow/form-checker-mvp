@@ -62,9 +62,21 @@ YOLO(人物検出) と ViTPose(2D姿勢) を使っており、2Dは3Dの材料�
              └─▶ ④ フィードバック生成          ← domains/<競技>.py + base.py
 ```
 
-### ① 3D人体復元 — GVHMR を採用
+### ① 3D人体復元 — 出荷は SAM 3D Body、基準は GVHMR
 
-**GVHMR** (SIGGRAPH Asia 2024 / TPAMI 2026) を採用。重力方向を推定する
+**2026-09-20 に役割を分けた。** GVHMR は非商用ライセンスで製品にできない。
+商用可の SAM 3D Body + MHR（Meta, CVPR 2026）が野球の投球で GVHMR と
+リリースフレーム一致・目視一致を出したので、こちらを出荷用にする
+（[issue 009](docs/issues/009-licensing-for-productization.md)）。
+
+```
+出荷   SAM 3D Body + MHR   単一画像・カメラ空間。三脚固定で床を1回決める前提
+基準   GVHMR               世界座標・重力推定あり。検証にだけ使う
+```
+
+以下は当初の採用理由。GVHMR の性質の説明として今も正しい。
+
+**GVHMR** (SIGGRAPH Asia 2024 / TPAMI 2026)。重力方向を推定する
 Gravity-View座標系を持ち、**接地・傾き・バランスが安定して取れる**ため、
 重心分析に本質的に効く。
 

@@ -34,9 +34,6 @@ python -m analysis --joints out/joints.npy --fps 60 --domain golf_swing --save o
 他の骨格（GEM-X の SOMA 77関節など）は `core.convert` で並べ替えてから渡す。
 重心・上軸・利き側はすべて関節から導出するので、入力はこの1ファイルでよい。
 
-Colab で使う場合は、リポジトリを Google ドライブに置いて `sys.path` に
-追加する（`notebooks/README.md` 参照）。
-
 ## テスト
 
 ```bash

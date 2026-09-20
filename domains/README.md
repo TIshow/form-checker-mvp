@@ -7,7 +7,7 @@
 |---|---|---|
 | `tennis_serve.py` | **実装済み** | TIER A 2件 / TIER B 2件 |
 | `golf_swing.py` | 指標のみ | インパクト検出がクラブ追跡待ち（[006](../docs/issues/006-racket-tracking.md)） |
-| `baseball_pitch.py` | 指標のみ | 240fps 以上の撮影が前提。60fps では連鎖を判定できない |
+| `baseball_pitch.py` | 指標のみ | 実映像で局面検出を確認済み（2手法で接地が1フレーム差）。連鎖判定は 240fps 以上が前提 |
 | `opera_posture.py` | 指標のみ | 音声側（`core/audio.py`）が未実装 |
 
 ## ドメインが実装する4つ

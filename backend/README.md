@@ -1,16 +1,44 @@
 # backend — 3D復元を Modal のサーバーレスGPUで動かす
 
-3系統が**並行して**動く。app 名も Volume も分けてあるので互いに影響しない。
+4系統が**並行して**動く。app 名も Volume も分けてあるので互いに影響しない。
 
-| ファイル | 手法 | ライセンス | 状態 |
+| ファイル | 手法 | ライセンス | 役割 |
 |---|---|---|---|
-| `reconstruct.py` | GVHMR | 非商用 | **本番。** 動作の再現が最良 |
-| `reconstruct_gemx.py` | GEM-X | Apache-2.0 + NVIDIA Open Model | 評価済み。ラケットドロップが消える |
-| `reconstruct_tram.py` | TRAM | MIT | 評価済み。同じくドロップが浅い |
+| `reconstruct_sam3d.py` | **SAM 3D Body + MHR** | SAM License（商用可）+ Apache-2.0 | **出荷用。** 人に見せる結果はこれで作る |
+| `reconstruct.py` | GVHMR | **非商用** | **基準。** 検証・突き合わせにだけ使う。外に出さない |
+| `reconstruct_gemx.py` | GEM-X | Apache-2.0 + NVIDIA Open Model | 評価記録。**SAM 3D Body のイメージと重みの供給元**なので消せない |
+| `reconstruct_tram.py` | TRAM | MIT（SMPL 依存） | 評価記録 |
 
-商用可能な2つを評価したが、どちらもサーブの動作を再現しきれなかった。
-経緯と数値は [issue 009](../docs/issues/009-licensing-for-productization.md)。
-以下は本番の GVHMR についての説明。
+## 役割分担（2026-09-20）
+
+```
+出荷   SAM 3D Body + MHR   商用可。デモ・納品・比較画面はすべてこれ
+基準   GVHMR               非商用。研究・検証の範囲でのみ使い、成果物に混ぜない
+```
+
+GVHMR は重力を推定した世界座標を返すので、**カメラの傾きや接地フレームを
+突き合わせる基準**として価値がある（放送カメラの傾き 1.4° はこれで逆算した）。
+ただしライセンスが `educational, research and non-profit purposes only` なので、
+**先方に見せる画面・送る動画には一切使わない**。
+
+SAM 3D Body は単一画像モデルで**カメラ空間**を返す。世界座標が無いので、
+三脚固定の素材で床を1回決める前提（[issue 011 §2](../docs/issues/011-commercial-architecture.md)）。
+評価の経緯と数値は [issue 009](../docs/issues/009-licensing-for-productization.md)。
+
+### SAM 3D Body を動かす
+
+```bash
+modal run backend/reconstruct_sam3d.py::explore                 # 初回。API と重みの在処を確認
+modal run backend/reconstruct_sam3d.py --video videos/baseball/x.mp4 --out output_x
+python -m analysis --joints output_x/s3_joints.npy --fps 24 --domain baseball_pitch
+```
+
+- イメージ定義は `reconstruct_gemx.py` と**1文字も変えない**こと。同じならビルド済みレイヤを再利用する
+- 人物検出は同梱の vitdet（detectron2）ではなく GEM-X 側の YOLOX。ライセンスが軽く、イメージに既にある
+- 配列で渡すフレームは **RGB**。cv2 の BGR をそのまま渡すと、エラーなしで精度だけ落ちる
+- 出力は `s3_joints.npy`（SMPL24。骨盤・脊椎は導出）と `s3_mhr_keypoints.npy`（手を含む生の70点）
+
+以下は基準として使う GVHMR についての説明。
 
 ---
 

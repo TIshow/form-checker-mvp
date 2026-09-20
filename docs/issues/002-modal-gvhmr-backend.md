@@ -3,7 +3,7 @@
 Status: Done (2026-07-25)
 Created: 2026-07-22
 GitHub: [#2](https://github.com/TIshow/form-checker-mvp/issues/2)
-関連: [notebooks/](../../notebooks/) の Colab 手順を置き換える / [001](001-contact-and-phase-detection.md) の前提基盤
+関連: `notebooks/` の Colab 手順を置き換える（移行完了後の 2026-09-20 に削除） / [001](001-contact-and-phase-detection.md) の前提基盤
 
 ---
 

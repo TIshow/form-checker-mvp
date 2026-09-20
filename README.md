@@ -59,7 +59,7 @@
 動画のピクセルを見ずに、3D重心の波形だけからサーブの打点を特定できたことになり、
 重心が物理的に正しく計算できている証拠となった。
 
-→ 検証手順は [notebooks/](notebooks/) に再現可能な形で保存。
+→ 当時の Colab 手順は Modal へ移行後に削除（[issue 002](docs/issues/002-modal-gvhmr-backend.md)）。レシピは `backend/reconstruct.py` の image 定義に焼いてある。
 
 ### ✅ フィードバック生成
 
@@ -123,10 +123,12 @@ python tools/camera_motion.py X.mp4        # 静止なら 0.0%/秒 前後
 
 ```
 REDESIGN.md    設計方針・技術選定・ロードマップ
-backend/       3D復元を Modal のサーバーレスGPUで実行。3系統が並行して動く
-  reconstruct.py       GVHMR  — 本番。品質は最良だが非商用ライセンス
-  reconstruct_gemx.py  GEM-X  — 商用可だが動作の再現が不足（評価済み）
-  reconstruct_tram.py  TRAM   — 商用可だが動作の再現が不足（評価済み）
+backend/       3D復元を Modal のサーバーレスGPUで実行。4系統が並行して動く
+  reconstruct_sam3d.py SAM 3D Body + MHR — 出荷用。商用可。人に見せる結果はこれ
+  reconstruct.py       GVHMR  — 基準。非商用。検証・突き合わせにだけ使う
+  reconstruct_gemx.py  GEM-X  — 評価記録。SAM 3D Body のイメージ・重みの供給元
+  reconstruct_tram.py  TRAM   — 評価記録
+videos/        元動画の置き場（中身は git に入らない）。解析前の確認手順はここの README
 core/          競技に依存しない計測（純numpy / GPU不要）
   skeleton.py    SMPL 24関節の定義・体節質量比
   geometry.py    幾何ユーティリティ
@@ -136,11 +138,12 @@ domains/       競技ごとの局面・指標・判定
   base.py           ドメインの型。Tier A/B/C と連鎖の判定（全競技共通）
   tennis_serve.py   テニス サーブ — 実装済み
   golf_swing.py     ゴルフ       — 指標のみ（判定は出典待ち）
-  baseball_pitch.py 野球 投球    — 指標のみ（240fps以上の撮影が前提）
+  baseball_pitch.py 野球 投球    — 指標のみ。実映像で局面検出を確認済み（連鎖判定は240fps以上）
   opera_posture.py  オペラ 姿勢  — 指標のみ（音声側が未実装）
 analysis/      アプリ層。core と domains をつなぐ薄い層 + CLI
 web/           ブラウザで見る（配信は web/devserver.py）
-  index.html     単体解析 — 動画を投げて結果を見る
+  clip.html      1本を見る — 元動画と3D骨格を同期表示。競技を問わない。人に見せる画面
+  index.html     単体解析 — 動画を投げて結果を見る（GVHMR の Web API）
   compare.html   二画面   — 2本の動画を見比べる（自分 vs お手本）
   models.html    三画面   — 1本を複数の復元手法で見比べる（報告用）
   session.html   多数本   — 1回の練習をまとめて見る（ばらつき・時系列）
@@ -152,17 +155,21 @@ tools/         補助スクリプト
   estimate_fps.py  空中の重心の落ち方から実fpsを推定（スロー動画用）
   camera_motion.py カメラが動いていないか（動くと世界座標が壊れる）
   find_serves.py   長い動画からサーブ区間を見つけ、1本ずつ切り出す
+  make_clip.py     clip.html 用のデータ生成（元動画も縮小して同梱）
   make_compare.py  compare.html 用のデータ生成
   make_models.py   models.html 用のデータ生成
   make_session.py  多数本をまとめて集計（ばらつき・結果との関係）
   compare_backends.py 復元手法を同じ物差しで比べる
-notebooks/     P0検証時の Colab 手順（記録・非推奨）
 ```
 
-復元手法が3系統あるのは、**GVHMR が非商用ライセンス**で製品化できないため。
-商用可能な代替を2つ評価したが、どちらもサーブの動作を再現しきれなかった
+復元手法が4系統あるのは、**GVHMR が非商用ライセンス**で製品化できないため。
+商用可能な代替を3つ評価し、**SAM 3D Body + MHR が GVHMR とほぼ一致した**
 （[issue 009](docs/issues/009-licensing-for-productization.md)）。
-GVHMR が本番で、他の2つは比較の記録として残してある。
+
+```
+出荷   SAM 3D Body + MHR   商用可。デモ・納品・比較画面はすべてこれ
+基準   GVHMR               非商用。検証にだけ使い、成果物に混ぜない
+```
 
 3D復元は GPU が要るため Modal 上で実行して**24関節**を返し、その関節から
 `core/` が重心・角度を、`domains/` が局面と判定を導出する、という分業。
@@ -180,8 +187,13 @@ pytest
 python tools/videoinfo.py temp_my_serve.mp4
 
 # 3D復元（Modal GPU）→ 解析。詳細は backend/README.md
-modal run backend/reconstruct.py --video temp_my_serve.mp4
-python -m analysis --joints gv_joints.npy --fps 60 --save output
+modal run backend/reconstruct_sam3d.py --video videos/baseball/x.mp4 --out output_x
+python -m analysis --joints output_x/s3_joints.npy --fps 24 --domain baseball_pitch
+
+# 人に見せる（元動画＋3D骨格＋計測値）
+python tools/make_clip.py --joints output_x/s3_joints.npy --fps 24 \
+    --domain baseball_pitch --video videos/baseball/x.mp4 --label "投球フォーム解析"
+python web/devserver.py   # → http://127.0.0.1:8123/clip.html
 
 # 競技を指定する（既定はテニスのサーブ）
 python -m analysis --list
