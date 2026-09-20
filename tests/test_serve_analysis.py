@@ -451,6 +451,76 @@ def test_mhr_mapping_checks_itself_against_upstream_names():
     assert any("41" in b for b in verify_mhr_names(names))
 
 
+def _pitch(n=80, fps=24.0, mound_drop=0.20):
+    """合成の投球。**踏み出し足が軸足より低く着く**（マウンドの傾斜）。
+
+    高さで接地を判定していたときは、これで接地が取れなかった。
+    """
+    J = np.zeros((n, 24, 3))
+    for j, h in {0: .95, 1: .90, 2: .90, 3: 1.05, 6: 1.15, 9: 1.25, 12: 1.45,
+                 13: 1.42, 14: 1.42, 15: 1.65, 16: 1.40, 17: 1.40,
+                 18: 1.15, 19: 1.15, 20: .92, 21: .92, 22: .86, 23: .86}.items():
+        J[:, j, 1] = h
+    J[:, [1, 13, 16, 18, 20, 22], 0] = -0.18
+    J[:, [2, 14, 17, 19, 21, 23], 0] = 0.18
+
+    lift, contact, release = 12, int(n * 0.70), int(n * 0.70) + 3
+    t = np.arange(n)
+    # 軸足(右)はプレート上で固定
+    J[:, 5, 1], J[:, 8, 1], J[:, 11, 1] = .50, .08, .02
+    J[:, [5, 8, 11], 0] = 0.18
+    # 踏み出し足(左)は上がって前へ出て、接地したら止まる。着地点は軸足より低い
+    fwd = np.clip((t - lift) / (contact - lift), 0, 1) ** 1.4 * 1.35
+    up = np.where(t < lift, 0.0,
+                  np.clip(np.sin(np.pi * np.clip((t - lift) / (contact - lift), 0, 1)), 0, 1) * 0.55)
+    drop = np.clip((t - lift) / (contact - lift), 0, 1) * mound_drop
+    for j, base in ((4, .50), (7, .08), (10, .02)):
+        J[:, j, 1] = base + up - drop
+        J[:, j, 0] = -0.18
+        J[:, j, 2] = fwd
+    J[:, 0, 2] = fwd * 0.45                       # 骨盤も前へ
+    # 投球腕(右手首)はリリースで最速
+    swing = np.exp(-((t - release) / 2.2) ** 2)
+    J[:, 21, 2] = swing * 1.1
+    J[:, 21, 1] = .92 + swing * 0.55
+    return J, lift, contact, release, fps
+
+
+def test_pitch_contact_uses_forward_travel_not_height():
+    """接地を**前進が止まる点**で取ること。マウンドの傾斜があっても動く。
+
+    高さで判定していたときは、踏み出し足が推定した床を突き抜けるため
+    接地が 0.3〜1.4秒ずれ、接地とリリースが同じフレームに潰れた。
+    """
+    J, lift, contact, release, fps = _pitch()
+    m, _ = analysis.analyze(J, fps, "baseball_pitch")
+    ph = m["phases"]
+    assert abs(ph["foot_contact"] - contact) <= 2, \
+        f"接地 {ph['foot_contact']} が正解 {contact} から離れすぎ"
+    assert ph["foot_contact"] < ph["release"], "接地とリリースが潰れている"
+    assert m["phases_separated"], f"{m['contact_to_release_s']*1000:.0f}ms"
+
+
+def test_pitch_contact_survives_a_steeper_mound():
+    """傾斜を倍にしても接地の検出が動くこと（高さ基準なら必ず壊れる）。"""
+    for drop in (0.0, 0.20, 0.40):
+        J, lift, contact, release, fps = _pitch(mound_drop=drop)
+        m, _ = analysis.analyze(J, fps, "baseball_pitch")
+        assert abs(m["phases"]["foot_contact"] - contact) <= 2, f"傾斜 {drop}m で失敗"
+
+
+def test_pitch_refuses_when_contact_and_release_are_implausible():
+    """接地→リリースが力学的な範囲を外れたら、依存する指標を出さないこと。"""
+    J, lift, contact, release, fps = _pitch()
+    # リリースを不自然に遅らせ、接地との間隔を広げる
+    m, _ = analysis.analyze(J[:contact + 40] if len(J) > contact + 40 else J, fps,
+                            "baseball_pitch")
+    bad = analysis.analyze(np.repeat(J[:1], 8, axis=0), fps, "baseball_pitch")[0]
+    assert not bad["phases_separated"]
+    assert np.isnan(bad["stride_ratio"])
+    assert np.isnan(bad["hip_shoulder_separation_deg"])
+
+
 def test_soma_mapping_rejects_unknown_joint_count():
     import numpy as np
     import pytest

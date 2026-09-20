@@ -38,14 +38,23 @@ from domains.base import NotImplementedDomain
 #: 投球で連鎖の順序を論じるのに必要と見積もったフレームレート。**未検証**。
 PITCH_CHAIN_MIN_FPS = 240.0
 
-#: 接地とみなす下降速度の、最大下降速度に対する比。
+#: 接地とみなす水平移動量の、最大移動量に対する比。
 #:
-#: **高さの閾値で接地を判定してはいけない。** マウンドは傾斜で、踏み出し足は
-#: 軸足より**低い**ところに着く。実測（KBOの投手・24fps）では踏み出し足が
-#: 推定した床より 6cm 下まで行き、「床+3cm」では接地が 0.3秒遅れて
-#: **接地とリリースが同じフレームに潰れた**。高さではなく
-#: 「速く下りてきた足が止まる」ところを見る。
-FOOT_PLANT_SPEED_RATIO = 0.25
+#: **接地は「高さ」ではなく「前進が止まること」で決める。**
+#:
+#: 高さで判定しようとして2回失敗した記録:
+#:
+#:   1. 「床+3cm」— マウンドは傾斜で、踏み出し足は軸足より**低く**着く。
+#:      実測で推定した床を突き抜けて 6〜16cm 下まで行き、接地が 0.3秒遅れて
+#:      **接地とリリースが同じフレームに潰れた**
+#:   2. 「下降が止まる点」— 足上げから降り始める最初の減速を拾ってしまい、
+#:      接地が 1.4秒も早く出た
+#:
+#: 水平方向にはこの問題が無い。踏み出し足は 1フレーム 15〜18cm で前進し、
+#: 着いた瞬間に 0 になる。同じクリップで GVHMR は f58、SAM 3D Body は f59 と、
+#: **独立した2手法が1フレーム差で一致した**。どちらもリリース(f62)の
+#: 125〜167ms 前で、投球の実測レンジ（120〜150ms）に収まる。
+FOOT_PLANT_STEP_RATIO = 0.25
 
 
 class BaseballPitch(NotImplementedDomain):
@@ -68,11 +77,11 @@ class BaseballPitch(NotImplementedDomain):
 
     evidence_needed = (
         "最大外旋(MER)を測る手段。上腕の軸回転は関節位置に出ない",
-        "接地の判定（下降速度が最大の "
-        f"{FOOT_PLANT_SPEED_RATIO:.0%} を下回った点。実測で高さの閾値より"
-        "はるかにましだが、比率そのものの根拠はまだ無い）",
-        "接地→リリースは実時間で120〜150ms。24fpsでは3〜4フレームしかなく"
-        "分離が粗い。120fps以上で撮れば局面の精度が一段上がる",
+        f"接地の判定（前進量が最大の {FOOT_PLANT_STEP_RATIO:.0%} を下回った点。"
+        "2手法が1フレーム差で一致し実測レンジにも入ったが、比率そのものの"
+        "根拠はまだ無い。足の速度センサ等で裏を取りたい）",
+        "接地→リリースは実時間で120〜150ms。24fpsでは3〜4フレームしかなく、"
+        "±1フレームで±33%ずれる。120fps以上で撮れば局面の精度が一段上がる",
         "ハイスピード撮影（240fps以上）での実測。60fpsでは連鎖を判定できない",
         "リリース検出をボール追跡で置き換える（今は手首の最大速度という代用）",
         "ストライドで前方へ大きく移動するため、世界座標の並進精度の検証",
@@ -106,15 +115,33 @@ class BaseballPitch(NotImplementedDomain):
         speed = np.concatenate([[0.0], speed])
         release = lift + int(np.argmax(speed[lift:])) if lift < kin.F - 1 else kin.F - 1
 
-        # 接地 = 「速く下りてきた足が止まる」ところ。足上げ〜リリースの間で探す。
-        # 高さの閾値は使わない（マウンドの傾斜で踏み出し足は軸足より低く着く）。
-        vel = np.diff(lf, prepend=lf[0])                # 負 = 下降
+        # 接地 = 「前へ出ていた足が止まる」ところ。足上げ〜リリースの間で探す。
+        # 高さは使わない（マウンドの傾斜で踏み出し足は軸足より低く着く）。
+        # 水平面の移動量の**大きさ**ではなく、**踏み出す向きの成分**を見る。
+        # カメラ空間で出す手法（SAM 3D Body）では水平2軸の片方が奥行きで、
+        # 単一画像モデルはそこが最も苦手。大きさを取ると奥行きのジッタが
+        # 混じり、止まったあとも動いているように見えた。
+        # 踏み出しの向きは「足上げ→リリース」の変位で決める。
+        hz = [a for a in (0, 1, 2) if a != kin.up_ax]
+        foot_h = kin.J[:, lead_foot[0]][:, hz]
+        travel = foot_h[release] - foot_h[lift]
+        n = float(np.linalg.norm(travel))
+        if n > 1e-6:
+            along = foot_h @ (travel / n)
+            step = np.diff(along, prepend=along[0])      # 前向きが正
+        else:
+            step = np.concatenate(
+                [[0.0], np.linalg.norm(np.diff(foot_h, axis=0), axis=-1)])
+        # **リリースから遡って探す。** 前向きに「最大の次に止まる点」を
+        # 探すと、足上げで脚を引き上げる動き（これも水平に速い）を拾って
+        # しまい、接地が 0.5秒早く出た。踏み出しは**リリース直前の最後の
+        # 前進**なので、後ろから見て最後に動いていたフレームの次が接地。
         contact = lift
         if release - lift >= 2:
-            fast = lift + int(np.argmin(vel[lift:release + 1]))
-            slowed = np.flatnonzero(
-                vel[fast:release + 1] > FOOT_PLANT_SPEED_RATIO * vel[fast])
-            contact = fast + int(slowed[0]) if len(slowed) else fast
+            seg = step[lift:release + 1]
+            moving = np.flatnonzero(seg > FOOT_PLANT_STEP_RATIO * seg.max())
+            if len(moving):
+                contact = min(lift + int(moving[-1]) + 1, release)
         return {"lift": lift, "foot_contact": min(contact, release),
                 "release": release}
 
