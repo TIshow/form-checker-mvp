@@ -169,7 +169,16 @@ python tools/make_clip.py --name batting --domain baseball_swing \
     --joints output_bat_s3/s3_joints_3-9s.npy --fps 240 --playback-fps 24 --start 3.0 \
     --smooth-to-fps 30 --video videos/baseball/batting_form.mp4 --label "バッティングフォーム解析"
 # → http://127.0.0.1:8123/clip.html?clip=batting
+
+python tools/make_clip.py --name opera --domain opera_posture \
+    --joints output_opera_s3/s3_joints.npy --fps 30 --smooth-to-fps 10 \
+    --video videos/opera/opera_form.mp4 --label "発声姿勢の解析"
+# → http://127.0.0.1:8123/clip.html?clip=opera
 ```
+
+オペラは局面が無いので、局面ボタンは「開始 / 終了」だけになる。指標はすべて
+区間の平均とばらつき。**ばらつき系（SD・揺れ）は単一画像モデルのジッタを含む**ので、
+GVHMR より 1.5〜3倍大きく出る。人と比べるなら同じ手法どうしで。
 
 **視点の既定は「横から撮った映像」を前提**にしている。ビューアは撮影カメラの
 位置を知らないので、体の向き（腰の左→右）から横向きを作る。投手の背中側から

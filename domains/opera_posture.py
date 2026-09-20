@@ -53,7 +53,7 @@ class OperaPosture(NotImplementedDomain):
     metric_labels = {
         "head_forward_cm": ("頭部の前後位置", "cm", 1, "肩の中点から"),
         "trunk_lean_mean_deg": ("体幹の傾き", "°", 1, "鉛直から・平均"),
-        "com_sway_cm": ("重心の揺れ", "cm", 1, "平均位置からのRMS"),
+        "com_sway_cm": ("重心の揺れ", "cm", 1, "足元に対する重心の水平移動のRMS"),
         "shoulder_tilt_mean_deg": ("肩の左右差", "°", 1, "平均"),
         "trunk_length_change_cm": ("体幹長の変化", "cm", 1, "胸郭の挙上の粗い代用"),
     }
@@ -106,7 +106,15 @@ class OperaPosture(NotImplementedDomain):
         # 変動するかであって、どれだけ動いたかではない。重心が円を描くと
         # 半径は一定なので、半径10cmで回っていても 0.03cm（＝直立と同じ）と
         # 出てしまう。左右一方向の揺れでも 7.06cm を 3.10cm と過小に出す。
-        com = kin.com[lo:hi].copy()
+        #
+        # **足元（両足首の中点）からの相対位置**で測る。絶対位置だと、カメラ空間で
+        # 返す手法の1フレームごとの並進のゆらぎ（体全体が数cm動いて見える）が
+        # そのまま「揺れ」になる。実測: 同じ歌唱で GVHMR 0.8cm に対し SAM 3D Body
+        # 4.2cm、平滑化しても 3.9cm——ジッタではなく低周波のドリフト。
+        # 支持基底（足）に対する重心の動きが、そもそも姿勢の揺れとして正しい量。
+        from core.skeleton import L_ANKLE, R_ANKLE
+        base = (J[:, L_ANKLE] + J[:, R_ANKLE]) / 2
+        com = kin.com[lo:hi] - base
         com[:, up_ax] = 0.0
         d = com - com.mean(0)
         sway = float(np.sqrt((d ** 2).sum(-1).mean()))

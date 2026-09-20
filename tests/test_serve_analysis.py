@@ -237,7 +237,11 @@ def _standing(offsets, tilt_deg=0.0):
     a, half = np.radians(tilt_deg), 0.18
     J[:, 16, 0], J[:, 16, 1] = -half * np.cos(a), 1.40 + half * np.sin(a)
     J[:, 17, 0], J[:, 17, 1] = half * np.cos(a), 1.40 - half * np.sin(a)
-    return J + offsets[:, None, :]
+    # 揺れは**足元に対する**重心の動きなので、足首・つま先は動かさない。
+    # 全身をずらすと「カメラ空間の並進ゆらぎ」と同じで、揺れとは数えない。
+    moved = np.ones(24, bool); moved[[7, 8, 10, 11]] = False
+    J[:, moved] += offsets[:, None, :]
+    return J
 
 
 def test_opera_sway_measures_displacement_not_radius():
@@ -245,6 +249,7 @@ def test_opera_sway_measures_displacement_not_radius():
 
     平均位置からの距離の**標準偏差**を取っていたため、半径が一定の動き
     （＝円）では 0 になっていた。半径10cmで回っても 0.03cm と出ていた。
+    足元は固定し、上体だけを動かす（重心は足元基準で測る）。
     """
     t = np.linspace(0, 4 * np.pi, 240)
     r = 0.10
@@ -255,8 +260,9 @@ def test_opera_sway_measures_displacement_not_radius():
     m_l, _ = analysis.analyze(_standing(line), 60.0, "opera_posture")
     m_s, _ = analysis.analyze(_standing(np.zeros((240, 3))), 60.0, "opera_posture")
 
-    assert abs(m_c["com_sway_cm"] - 10.0) < 0.1     # 円: 半径そのもの
-    assert abs(m_l["com_sway_cm"] - 7.07) < 0.1     # 直線: 振幅の 1/√2
+    # 足は動かさないので重心は振幅の 97% ほど動く（足の質量ぶん小さい）
+    assert 9.0 < m_c["com_sway_cm"] < 10.0          # 円: ほぼ半径
+    assert 6.4 < m_l["com_sway_cm"] < 7.1           # 直線: ほぼ振幅の 1/√2
     assert m_s["com_sway_cm"] < 0.01                # 静止
 
 
