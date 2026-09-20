@@ -37,7 +37,15 @@ export const CONTACT_COLOR = 0xef4444;
 export function toDisplay(clip) {
   const [ax, sg] = clip.up_axis;
   const hz = [0, 1, 2].filter(k => k !== ax);
-  const d = clip.joints.map(fr => fr.map(p => [p[hz[0]], p[ax] * sg, p[hz[1]]]));
+  // 上向きを +Y にするとき、**水平の1軸も一緒に反転する**。
+  //
+  // 上軸だけ符号を変えると、座標系の掌性（determinant）が −1 になり
+  // **骨格が鏡像になる**——左右の手足が入れ替わって表示される。
+  // 世界座標で返す手法（GVHMR/TRAM/GEM-X）は上が +Y なので sg=+1 で
+  // 何も起きず、長く気付かなかった。カメラ空間で返す SAM 3D Body は
+  // 画像の慣習で Y が下向き（sg=−1）なので、そこで初めて出た。
+  // 2軸を反転すれば det は +1 に戻り、Y軸まわりの180°回転と同じになる。
+  const d = clip.joints.map(fr => fr.map(p => [p[hz[0]] * sg, p[ax] * sg, p[hz[1]]]));
 
   let rx = 0, rz = 0;
   for (const fr of d) {
