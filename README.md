@@ -127,11 +127,18 @@ backend/       3D復元を Modal のサーバーレスGPUで実行。3系統が�
   reconstruct.py       GVHMR  — 本番。品質は最良だが非商用ライセンス
   reconstruct_gemx.py  GEM-X  — 商用可だが動作の再現が不足（評価済み）
   reconstruct_tram.py  TRAM   — 商用可だが動作の再現が不足（評価済み）
-analysis/      指標算出とフィードバック生成（純numpy / GPU不要）
-  serve.py       計測  — 幾何・運動学・指標
-  feedback.py    判定  — ルールと閾値
-  report.py      表示
-  soma.py        GEM-X の SOMA 77関節 → SMPL 24関節への並べ替え
+core/          競技に依存しない計測（純numpy / GPU不要）
+  skeleton.py    SMPL 24関節の定義・体節質量比
+  geometry.py    幾何ユーティリティ
+  kinematics.py  重心・床・関節角・捻転・手の向き・連鎖
+  convert.py     他の骨格 → SMPL24（GEM-X の SOMA 77/78。次は MHR 127）
+domains/       競技ごとの局面・指標・判定
+  base.py           ドメインの型。Tier A/B/C と連鎖の判定（全競技共通）
+  tennis_serve.py   テニス サーブ — 実装済み
+  golf_swing.py     ゴルフ       — 指標のみ（判定は出典待ち）
+  baseball_pitch.py 野球 投球    — 指標のみ（240fps以上の撮影が前提）
+  opera_posture.py  オペラ 姿勢  — 指標のみ（音声側が未実装）
+analysis/      アプリ層。core と domains をつなぐ薄い層 + CLI
 web/           ブラウザで見る（配信は web/devserver.py）
   index.html     単体解析 — 動画を投げて結果を見る
   compare.html   二画面   — 2本の動画を見比べる（自分 vs お手本）
@@ -158,8 +165,12 @@ notebooks/     P0検証時の Colab 手順（記録・非推奨）
 GVHMR が本番で、他の2つは比較の記録として残してある。
 
 3D復元は GPU が要るため Modal 上で実行して**24関節**を返し、その関節から
-`analysis/` が重心・角度・フィードバックを導出する、という分業になっている。
-重心も上軸も関節の純関数なので、GPU側は関節までを担い、`analysis/` はローカルでも動く。
+`core/` が重心・角度を、`domains/` が局面と判定を導出する、という分業。
+重心も上軸も関節の純関数なので、GPU側は関節までを担い、以降はローカルで動く。
+
+**1リポジトリで複数の競技**を扱う。共有するのは `core/`（計測）と
+保存・比較・表示で、競技ごとに違うのは局面・指標・判定だけ
+（[issue 011](docs/issues/011-commercial-architecture.md)）。
 
 ```bash
 uv venv && uv pip install -e ".[dev]"
@@ -171,6 +182,10 @@ python tools/videoinfo.py temp_my_serve.mp4
 # 3D復元（Modal GPU）→ 解析。詳細は backend/README.md
 modal run backend/reconstruct.py --video temp_my_serve.mp4
 python -m analysis --joints gv_joints.npy --fps 60 --save output
+
+# 競技を指定する（既定はテニスのサーブ）
+python -m analysis --list
+python -m analysis --joints out/joints.npy --fps 60 --domain golf_swing
 ```
 
 ## 実行環境について

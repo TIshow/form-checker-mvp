@@ -35,3 +35,5 @@ docは消さない。完了後の価値は手順ではなく「なぜそうし�
 | [008](008-moving-camera-slam.md) | カメラが動く素材で世界座標が壊れる（跳躍が再現されない） | — | Open（優先度低） |
 | [009](009-licensing-for-productization.md) | 製品化のライセンス制約（GVHMR と SMPL が非商用） | — | Open |
 | [010](010-outcome-measurement.md) | 結果を測る（ボール速度・コース・ポイント） | — | Open |
+| [011](011-commercial-architecture.md) | 商用化に向けた構成の転換（三脚前提・蒸留・結果計測） | — | Open |
+| [012](012-commercial-multidomain-direction.md) | 商用化と複数分野への展開方針・現行コードからの移行 | — | Proposal |

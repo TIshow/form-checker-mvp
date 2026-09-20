@@ -3,13 +3,13 @@
 Status: Open
 Created: 2026-07-22
 GitHub: [#1](https://github.com/TIshow/form-checker-mvp/issues/1)
-関連コード: [analysis/serve.py](../../analysis/serve.py) `detect_phases`
+関連コード: [core/kinematics.py](../../core/kinematics.py) `detect_phases`
 
 ---
 
 ## 背景 / 現状の問題
 
-現在のフェーズ検出（[analysis/serve.py](../../analysis/serve.py) `detect_phases`）は3行で、
+現在のフェーズ検出（[core/kinematics.py](../../core/kinematics.py) `detect_phases`）は3行で、
 すべて単純な最大/最小で決めている。
 
 ```python

@@ -25,14 +25,14 @@
     GVHMR 116°（最も再現度が高い） > TRAM 72° = GEM-X 72°（劣る）
 
 一方、腕の高さ・上腕の傾き・肘角はどれも逆の順位を示し、判断を誤らせた。
-まだ analysis 側の正式な指標にはしていないので、ここで計算している。
+この指標は `domains/tennis_serve.py` の正式な指標に昇格した（issue 011）。
+ここに残しているのはグラフ用の時系列だけ。
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -45,42 +45,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import analysis  # noqa: E402
-from analysis.serve import (  # noqa: E402
-    FOOT_IDS, L_HAND, R_HAND, ServeKinematics, detect_up_axis,
-)
 from make_compare import PREFIXES, sanitize  # noqa: E402
 
 
-def racket_drop(J: np.ndarray, fps: float) -> dict:
-    """ラケットヘッドの落ち込み。手首→手の向きが鉛直から倒れる角度[deg]。"""
-    k = ServeKinematics(J, fps)
-    ph = k.detect_phases()
-    lo, ct = ph["loading"], ph["contact"]
-    ax, sg = detect_up_axis(J)
-    up = np.zeros(3)
-    up[ax] = sg
-    wr = k.idx("wrist")
-    hd = R_HAND if k.racket_side == "R" else L_HAND
-    v = J[:, hd] - J[:, wr]
-    v = v / np.linalg.norm(v, axis=1, keepdims=True)
-    ang = np.degrees(np.arccos(np.clip(v @ up, -1, 1)))
-    seg = ang[lo:ct + 1]
+def racket_drop_series(J: np.ndarray, fps: float, m: dict) -> dict:
+    """ラケットドロップの毎フレームの値。スカラーは指標から取る。
+
+    指標そのもの（最大値・フレーム・打点時）は `domains/tennis_serve.py` に
+    昇格したので、ここで計算するのは**グラフ用の時系列だけ**。
+    """
+    _, k = analysis.kinematics_for(J, fps)
+    ang = k.hand_direction()
     return {
         "series": [round(float(a), 1) for a in ang],
-        "max_deg": round(float(seg.max()), 1),
-        "max_frame": int(seg.argmax()) + lo,
-        "at_contact_deg": round(float(ang[ct]), 1),
+        "max_deg": round(m["racket_drop_deg"], 1),
+        "max_frame": m["racket_drop_frame"],
+        "at_contact_deg": round(m["racket_drop_at_contact_deg"], 1),
     }
-
-
-def foot_clearance(J: np.ndarray, fps: float) -> dict:
-    """跳躍。床（最も低い足の中央値）から、足がどれだけ浮くか[cm]。"""
-    k = ServeKinematics(J, fps)
-    lo = k.detect_phases()["loading"]
-    ax, sg = detect_up_axis(J)
-    feet = (J[..., ax] * sg)[:, FOOT_IDS].min(axis=1)
-    ground = float(np.median(feet))
-    return {"max_cm": round(float(feet[lo:].max() - ground) * 100, 1)}
 
 
 def _pick(d: Path) -> Path:
@@ -97,8 +78,9 @@ def bundle(label: str, joints_dir: str, fps: float) -> dict:
     res["label"] = label
     res["fps"] = fps
     res["source"] = joints_dir
-    res["racket_drop"] = racket_drop(J, fps)
-    res["foot_clearance"] = foot_clearance(J, fps)
+    res["racket_drop"] = racket_drop_series(J, fps, res["metrics"])
+    res["foot_clearance"] = {
+        "max_cm": round(res["metrics"]["foot_clearance_m"] * 100, 1)}
     res.pop("feedback", None)      # 手法比較には要らない。JSONを小さくする
     return res
 

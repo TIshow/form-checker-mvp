@@ -24,14 +24,13 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import analysis  # noqa: E402
-from analysis.serve import (  # noqa: E402
-    L_ANKLE, L_FOOT, R_ANKLE, R_FOOT, detect_up_axis,
-)
+from core import detect_up_axis  # noqa: E402
+from core.skeleton import FOOT_IDS  # noqa: E402
 
 
 # 復元手法ごとの接頭辞。gv_=GVHMR、gx_=GEM-X、tr_=TRAM（issue #9）。
 # どの出力ディレクトリでも同じように読めるようにしておく。
-# GEM-X は analysis/soma.py で SMPL の24関節順に並べ替え済み、TRAM は
+# GEM-X は core/convert.py で SMPL の24関節順に並べ替え済み、TRAM は
 # 元から24関節なので、ここから下流は手法を意識しなくてよい。
 PREFIXES = ("gv_", "gx_", "tr_")
 
@@ -77,7 +76,7 @@ def quality(joints: np.ndarray, phases: dict) -> dict:
     「解析の結果」と取り違えないよう、判断材料を一緒に運ぶ。
     """
     ax, sg = detect_up_axis(joints)
-    feet = joints[:, [L_ANKLE, R_ANKLE, L_FOOT, R_FOOT]][..., ax] * sg
+    feet = joints[:, FOOT_IDS][..., ax] * sg
     standing = float(np.median(feet.min(axis=1)))
     span = int(phases["contact"] - phases["loading"])
 

@@ -8,11 +8,14 @@
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 
 import analysis
-from analysis import feedback as fb
+import domains
+from domains import tennis_serve as fb
 from tests.synth import synth_serve
 
 
@@ -100,7 +103,49 @@ def test_chain_judged_at_high_fps():
 
 
 def test_min_fps_boundary_is_respected():
-    assert fb.CHAIN_MIN_FPS >= 60.0, "連鎖判定の下限fpsを下げると誤検知が復活する"
+    assert domains.get("tennis_serve").chain_min_fps >= 60.0, \
+        "連鎖判定の下限fpsを下げると誤検知が復活する"
+
+
+# --------------------------------------------------------------------------
+# ドメインの分離（issue 011）
+# --------------------------------------------------------------------------
+def test_every_domain_measures_without_crashing():
+    """合成サーブを全ドメインに通す。局面検出が例外を投げないこと。
+
+    動作としては正しくない（サーブをゴルフとして測る）が、**どのドメインも
+    同じ (F,24,3) を受けて JSON 化できる辞書を返す**という契約を守らせる。
+    """
+    joints, _ = synth_serve(fps=120.0)
+    for name in domains.names():
+        d, kin = analysis.kinematics_for(joints, 120.0, name)
+        m = d.measure(kin, d.detect_phases(kin))
+        json.dumps(m)                      # numpy が残っていれば例外
+        assert m["n_frames"] == joints.shape[0]
+        assert d.report(m, d.judge(m)), f"{name} のレポートが空"
+
+
+def test_unimplemented_domains_make_no_threshold_claims():
+    """閾値の出典が無いドメインは、文献ベースの判定を出してはいけない。
+
+    テニスでは、出典を確認していない数値で**プロの技術を欠点と判定していた**。
+    新しい競技で同じことを繰り返さないための歯止め。
+    力学的原理（TIER A）だけは競技をまたいで成り立つので許す。
+    """
+    joints, _ = synth_serve(fps=120.0)
+    for name in domains.names():
+        if name == "tennis_serve":
+            continue
+        d, kin = analysis.kinematics_for(joints, 120.0, name)
+        m = d.measure(kin, d.detect_phases(kin))
+        tiers = {f["tier"] for f in d.judge(m)}
+        assert tiers <= {"A"}, f"{name} が根拠のない判定を出している: {tiers}"
+        assert d.evidence_needed, f"{name} に evidence_needed が無い"
+
+
+def test_unknown_domain_is_rejected_with_the_list():
+    with pytest.raises(KeyError, match="使えるのは"):
+        domains.get("tennis_smash")
 
 
 # --------------------------------------------------------------------------
@@ -202,7 +247,7 @@ def test_analyze_json_is_serializable():
 
 def test_com_derived_from_joints_is_anatomical():
     """関節から導出した重心が身長の約半分に来る（移動が忠実かの確認）。"""
-    from analysis.serve import compute_com, detect_up_axis
+    from core import compute_com, detect_up_axis
     joints, _ = synth_serve(fps=30.0)
     com = compute_com(joints)
     up_ax, up_sign = detect_up_axis(joints)
@@ -217,7 +262,7 @@ def test_com_derived_from_joints_is_anatomical():
 
 def test_soma_mapping_is_a_valid_permutation():
     """24関節ぶん、重複なく SOMA の範囲内を指していること。"""
-    from analysis.soma import SMPL24_FROM_SOMA78, SOMA78_JOINTS
+    from core.convert import SMPL24_FROM_SOMA78, SOMA78_JOINTS
     idx = [i for _, i in SMPL24_FROM_SOMA78]
     assert len(idx) == 24
     assert len(set(idx)) == 24, "同じ SOMA 関節を2度使っている"
@@ -231,7 +276,7 @@ def test_soma_mapping_absorbs_missing_root():
     それらしい数字が出てしまうので、取り違えに気付けない。
     """
     import numpy as np
-    from analysis.soma import to_smpl24
+    from core.convert import to_smpl24
     # 関節 i の座標を i にしておけば、どれを引いたかが値で分かる
     j78 = np.arange(78, dtype=float)[None, :, None].repeat(3, axis=2)
     j77 = j78[:, 1:, :] - 1.0          # Root を落とし、添字を1つ詰めた並び
@@ -241,7 +286,7 @@ def test_soma_mapping_absorbs_missing_root():
 def test_soma_mapping_rejects_unknown_joint_count():
     import numpy as np
     import pytest
-    from analysis.soma import to_smpl24
+    from core.convert import to_smpl24
     with pytest.raises(ValueError, match="SOMA の関節数"):
         to_smpl24(np.zeros((2, 24, 3)))
 

@@ -57,9 +57,9 @@ YOLO(人物検出) と ViTPose(2D姿勢) を使っており、2Dは3Dの材料�
 ```
 動画
  └─▶ ① 3D人体復元 (world-grounded SMPL)      ← backend/ Modal (GPU必須)
-     └─▶ ② バイオメカ量の算出 (重心・関節角)    ← analysis/serve.py
-         └─▶ ③ 動作の意味づけ (フェーズ・連鎖・打点)
-             └─▶ ④ フィードバック生成          ← analysis/feedback.py
+     └─▶ ② バイオメカ量の算出 (重心・関節角)    ← core/kinematics.py
+         └─▶ ③ 動作の意味づけ (フェーズ・連鎖・打点)   ← domains/<競技>.py
+             └─▶ ④ フィードバック生成          ← domains/<競技>.py + base.py
 ```
 
 ### ① 3D人体復元 — GVHMR を採用
@@ -81,7 +81,7 @@ Gravity-View座標系を持ち、**接地・傾き・バランスが安定して
 ### ② バイオメカ量の算出
 
 SMPL の24関節に**人体計測学的な体節質量比(De Leva)**を割り当て、
-world座標で全身重心を計算する。実装は `analysis/serve.py`。
+world座標で全身重心を計算する。実装は `core/kinematics.py`。
 
 現在算出しているもの: 重心の高さ・軌跡、膝屈曲、肘角度、体幹の傾き、
 X-factor(肩-腰の捻転差)、各体節の角速度。

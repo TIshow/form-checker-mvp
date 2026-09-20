@@ -87,7 +87,7 @@ image = (
         "pip install huggingface_hub",
     )
     # analysis（純numpy）をイメージに含める。run_job がサーバー側で指標を導出するため。
-    .add_local_python_source("analysis")
+    .add_local_python_source("analysis", "core", "domains")
 )
 
 # Web エンドポイント用の軽量イメージ（GPU不要。fastapi だけ）

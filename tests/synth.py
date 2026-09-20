@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from analysis import serve as S
+from core import skeleton as S
 
 UP_AXIS = 1       # y-up
 UP_SIGN = 1.0

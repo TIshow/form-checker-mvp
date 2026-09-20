@@ -36,7 +36,7 @@ Status: Open
 - 「あなたの過去50本では、膝が深いときほど速い傾向」→ **言える**
 - 「10°深くすれば +5km/h 速くなる」→ **言えない**（反実仮想。介入実験が要る）
 
-この線引きは [analysis/feedback.py](../../analysis/feedback.py) の Tier A/B/C
+この線引きは [domains/base.py](../../domains/base.py) の Tier A/B/C
 （閾値の出典管理）と同じ姿勢。根拠の強さを偽らない。
 
 **手段の候補**:

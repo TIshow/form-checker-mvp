@@ -17,7 +17,7 @@ commercially usable"）、人体モデルは NVIDIA 独自の SOMA で、SMPL �
 
 ## GVHMR との違いで、下流に効くところ
 
-- **関節が SOMA の77個**（GVHMR は SMPL の24個）。`analysis/soma.py` で
+- **関節が SOMA の77個**（GVHMR は SMPL の24個）。`core/convert.py` で
   並べ替えれば既存の解析層・ビューア・アバターが無改造で動く。
 - **カメラ空間の姿勢も返る**（`body_params_incam`）。GVHMR は世界座標しか
   返さなかった。跳躍がどの段で失われるかを直接比べられる（issue #8 の案D）。
@@ -40,7 +40,7 @@ import modal
 GEMX = "/root/GEM-X"
 ASSETS = "/assets"
 
-# 再現性のため固定する。更新したら analysis/soma.py の verify_against_asset() を
+# 再現性のため固定する。更新したら core/convert.py の verify_against_asset() を
 # 通すこと（SOMA が関節の並びを変えると、手書きの対応表が黙って壊れる）。
 GEMX_COMMIT = "3299255"
 
@@ -96,7 +96,7 @@ image = (
         f"ln -sfn {GEMX}/third_party/soma/assets inputs/soma_assets",
     )
     .env({"PYOPENGL_PLATFORM": "egl", "EGL_PLATFORM": "surfaceless"})
-    .add_local_python_source("analysis")
+    .add_local_python_source("analysis", "core", "domains")
 )
 
 app = modal.App("gemx-reconstruct")
@@ -348,7 +348,7 @@ def main(video: str, out: str = "output_gemx",
     import numpy as np
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from analysis.soma import to_smpl24
+    from core.convert import to_smpl24
 
     video_path = Path(video)
     data = video_path.read_bytes()

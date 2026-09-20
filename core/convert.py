@@ -1,12 +1,12 @@
 """SOMA の骨格を SMPL の24関節配置に並べ替える（issue #9）。
 
-GEM-X は SOMA（NVIDIA の人体モデル）で77関節を返す。一方 `analysis/serve.py`
+GEM-X は SOMA（NVIDIA の人体モデル）で77関節を返す。一方 `core/kinematics.py`
 も `web/avatar.js` も SMPL の24関節前提で書かれている。
 
 ここで**並べ替えるだけ**にしておけば、解析層もビューアもアバターも無改造で
 GEM-X の出力を扱える。GVHMR 経路には一切触れない。
 
-    from analysis.soma import to_smpl24
+    from core.convert import to_smpl24
     joints24 = to_smpl24(joints_soma)      # (F,77or78,3) -> (F,24,3)
 
 ## 対応の根拠
@@ -106,3 +106,17 @@ def verify_against_asset(npz_path: str) -> list[str]:
         if names[i] != want:
             bad.append(f"添字 {i} は {want} のはずが {names[i]} でした")
     return bad
+
+
+# --------------------------------------------------------------------------
+# 次に増える骨格: MHR（Meta Momentum Human Rig, 127関節・Apache-2.0）
+#
+# SAM 3D Body は MHR パラメータを直接返す（issue 011）。採用するなら
+# `to_smpl24` と同じ形で `mhr_to_smpl24` をここに足す。上の SOMA と同様、
+# **添字を1つ間違えても「それらしい数字」が出てしまう**ため、
+# `verify_against_asset` に相当する照合を必ず併せて書くこと。
+#
+# MHR は手と顔を持つので、24関節に落とすと情報を捨てることになる。
+# ラケット/クラブのグリップ（issue 006）に使うなら、24関節に潰さず
+# 手の関節を別に持ち回る設計が要る。
+# --------------------------------------------------------------------------

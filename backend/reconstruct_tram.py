@@ -23,7 +23,7 @@ EMDB 世界座標評価では GVHMR を上回る:
 ## 下流にとって嬉しいこと
 
 **TRAM は SMPL の24関節をそのまま返す。** GEM-X のような並べ替え
-（analysis/soma.py）が要らず、解析層・ビューア・アバターがそのまま動く。
+（core/convert.py）が要らず、解析層・ビューア・アバターがそのまま動く。
 
 ## 3段構成
 
@@ -134,7 +134,7 @@ image = (
         "pip install 'setuptools<75' && python -c \"import pkg_resources;"
         " from detectron2 import model_zoo; print('detectron2 model_zoo ok')\"",
     )
-    .add_local_python_source("analysis")
+    .add_local_python_source("analysis", "core", "domains")
 )
 
 app = modal.App("tram-reconstruct")
