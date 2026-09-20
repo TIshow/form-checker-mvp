@@ -38,14 +38,14 @@ from domains.base import NotImplementedDomain
 #: 投球で連鎖の順序を論じるのに必要と見積もったフレームレート。**未検証**。
 PITCH_CHAIN_MIN_FPS = 240.0
 
-#: 踏み出し足が「接地した」とみなす床からの高さ [m]。**根拠のない暫定値**。
+#: 接地とみなす下降速度の、最大下降速度に対する比。
 #:
-#: 局面のすべてがこの1つの数字にぶら下がっている（接地フレームが
-#: ストライド長・股関節と肩の分離・リード膝の角度・連鎖の窓を決める）。
-#: それなのに出典が無い。実測では 0.01→0.10m で接地が 51フレーム（0.85秒）
-#: 動いた。接地は高さの閾値ではなく**足の速度が落ちる点**で決めるべきで、
-#: ここは実際の投球映像で決め直すまでの仮置き。
-FOOT_CONTACT_TOL_M = 0.03
+#: **高さの閾値で接地を判定してはいけない。** マウンドは傾斜で、踏み出し足は
+#: 軸足より**低い**ところに着く。実測（KBOの投手・24fps）では踏み出し足が
+#: 推定した床より 6cm 下まで行き、「床+3cm」では接地が 0.3秒遅れて
+#: **接地とリリースが同じフレームに潰れた**。高さではなく
+#: 「速く下りてきた足が止まる」ところを見る。
+FOOT_PLANT_SPEED_RATIO = 0.25
 
 
 class BaseballPitch(NotImplementedDomain):
@@ -58,8 +58,11 @@ class BaseballPitch(NotImplementedDomain):
 
     evidence_needed = (
         "最大外旋(MER)を測る手段。上腕の軸回転は関節位置に出ない",
-        f"接地の判定（今は床から {FOOT_CONTACT_TOL_M * 100:.0f}cm という根拠のない閾値。"
-        "局面全体がこの1つの数字で決まる。足の速度で決めるべき）",
+        "接地の判定（下降速度が最大の "
+        f"{FOOT_PLANT_SPEED_RATIO:.0%} を下回った点。実測で高さの閾値より"
+        "はるかにましだが、比率そのものの根拠はまだ無い）",
+        "接地→リリースは実時間で120〜150ms。24fpsでは3〜4フレームしかなく"
+        "分離が粗い。120fps以上で撮れば局面の精度が一段上がる",
         "ハイスピード撮影（240fps以上）での実測。60fpsでは連鎖を判定できない",
         "リリース検出をボール追跡で置き換える（今は手首の最大速度という代用）",
         "ストライドで前方へ大きく移動するため、世界座標の並進精度の検証",
@@ -82,21 +85,43 @@ class BaseballPitch(NotImplementedDomain):
         lead_foot = [L_ANKLE, L_FOOT] if kin.side == "R" else [R_ANKLE, R_FOOT]
         lf = kin.height(kin.J[:, lead_foot]).min(axis=1)
         lift = int(np.argmax(lf))                       # 足を最も上げたところ
-        after = lf[lift:]
-        # 接地 = 足上げ以降で床の高さに戻る最初のところ
-        ground = kin.ground()
-        touched = np.where(after <= ground + FOOT_CONTACT_TOL_M)[0]
-        contact = lift + int(touched[0]) if len(touched) else lift
 
+        # 接地 = 「速く下りてきた足が止まる」ところ。
+        # 高さの閾値は使わない（マウンドの傾斜で踏み出し足は軸足より低く着く）。
+        # リリースを先に決める。≒ 手首が最も速いフレーム。**足上げ以降の全体**
+        # から探すこと。接地以降に限ると、接地の推定が少し遅れただけで
+        # ピークを跨ぎ、接地とリリースが同じフレームに潰れる（実測で起きた）。
         wr = kin.idx("wrist")
         speed = smooth(np.linalg.norm(np.diff(kin.J[:, wr], axis=0), axis=-1))
         speed = np.concatenate([[0.0], speed])
-        release = contact + int(np.argmax(speed[contact:])) if contact < kin.F - 1 else kin.F - 1
-        return {"lift": lift, "foot_contact": contact, "release": release}
+        release = lift + int(np.argmax(speed[lift:])) if lift < kin.F - 1 else kin.F - 1
+
+        # 接地 = 「速く下りてきた足が止まる」ところ。足上げ〜リリースの間で探す。
+        # 高さの閾値は使わない（マウンドの傾斜で踏み出し足は軸足より低く着く）。
+        vel = np.diff(lf, prepend=lf[0])                # 負 = 下降
+        contact = lift
+        if release - lift >= 2:
+            fast = lift + int(np.argmin(vel[lift:release + 1]))
+            slowed = np.flatnonzero(
+                vel[fast:release + 1] > FOOT_PLANT_SPEED_RATIO * vel[fast])
+            contact = fast + int(slowed[0]) if len(slowed) else fast
+        return {"lift": lift, "foot_contact": min(contact, release),
+                "release": release}
+
+    #: 接地からリリースまでの、力学的にあり得る範囲 [秒]。
+    #:
+    #: 投球では踏み出し足が着いてから 120〜150ms でリリースする。ここを
+    #: 大きく外れた検出は、接地を取り違えている。**取り違えたまま数字を
+    #: 出さない**ための関門で、外れたら依存する指標を NaN にする。
+    CONTACT_TO_RELEASE_S = (0.08, 0.30)
 
     def measure(self, kin: Kinematics, phases: dict[str, int]) -> dict:
         fc, rel = phases["foot_contact"], phases["release"]
         body_h = kin.body_height_proxy()
+        lo_s, hi_s = self.CONTACT_TO_RELEASE_S
+        gap_s = (rel - fc) / kin.fps
+        separated = lo_s <= gap_s <= hi_s
+        nan = float("nan")
 
         stride = float(np.linalg.norm(kin.J[fc, L_ANKLE] - kin.J[fc, R_ANKLE]))
 
@@ -113,16 +138,27 @@ class BaseballPitch(NotImplementedDomain):
             "n_frames": kin.F,
             "phases": phases,
             # ストライド。身長で正規化する
-            "stride_m": stride,
-            "stride_ratio": float(stride / body_h) if body_h > 0 else float("nan"),
+            "stride_m": stride if separated else nan,
+            "stride_ratio": (float(stride / body_h)
+                             if separated and body_h > 0 else nan),
             # 股関節-肩の分離（TIER C。位置ベースなので弱い）
-            "hip_shoulder_separation_deg": float(xf[fc]),
-            "hip_shoulder_separation_max_deg": float(xf[fc : rel + 1].max())
-            if rel > fc else float(xf[fc]),
+            "hip_shoulder_separation_deg": float(xf[fc]) if separated else nan,
+            "hip_shoulder_separation_max_deg": (float(xf[fc : rel + 1].max())
+                                                if separated else nan),
             # リード脚。伸展するほど骨盤の回転が止まり上体へ力が移る
-            "lead_knee_at_contact_deg": float(lead[fc]),
+            "lead_knee_at_contact_deg": float(lead[fc]) if separated else nan,
             "lead_knee_at_release_deg": float(lead[rel]),
-            "lead_knee_extension_deg": float(lead[rel] - lead[fc]),
+            "lead_knee_extension_deg": (float(lead[rel] - lead[fc])
+                                        if separated else nan),
+            # 接地を信用してよいか。False の指標は NaN にしてある
+            "phases_separated": bool(separated),
+            "contact_to_release_s": float(gap_s),
+            "phases_note": ("" if separated else
+                            f"接地→リリースが {gap_s * 1000:.0f}ms。"
+                            f"力学的な範囲（{lo_s * 1000:.0f}〜{hi_s * 1000:.0f}ms）"
+                            "の外なので、接地の検出を信用していません。"
+                            "マウンドの傾斜で踏み出し足が軸足より低く着くため、"
+                            "床からの高さでは接地を取れません"),
             # 上体
             "trunk_lean_at_release_deg": float(kin.trunk_lean()[rel]),
             "elbow_at_release_deg": float(kin.elbow_angle()[rel]),

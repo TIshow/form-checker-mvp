@@ -158,6 +158,10 @@ class NotImplementedDomain:
                 lines.append(f"  {k:<28} {v:8.2f}")
             elif isinstance(v, (int, str)):
                 lines.append(f"  {k:<28} {v}")
+        note = metrics.get("phases_note")
+        if note:
+            lines += ["", "  ⚠️ " + note,
+                      "     （これに依存する指標は nan にしてあります）"]
         if self.evidence_needed:
             lines += ["", "── 判定を入れる前に確かめること ──"]
             lines += [f"  ・{e}" for e in self.evidence_needed]
