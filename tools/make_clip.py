@@ -108,8 +108,14 @@ def _check_image_x(joints_path: Path, J: np.ndarray) -> None:
 def build(joints_path: str, fps: float, domain: str, label: str,
           video: str | None, out: Path, max_width: int = 1280,
           playback_fps: float | None = None, start: float = 0.0,
-          smooth_to_fps: float | None = None, coords: str | None = None) -> dict:
+          smooth_to_fps: float | None = None, coords: str | None = None,
+          end: float | None = None) -> dict:
     J = np.load(joints_path)
+    if end is not None:
+        # 解析に使う範囲を末尾で切る（動画は切らない）。関節のフレーム i は
+        # 元動画の start + i/再生fps 秒に当たる。
+        n = int(round((end - start) * (playback_fps or fps)))
+        J = J[: max(n, 3)]
     d = domains.get(domain)
     res = analysis.analyze_json(J, fps, domain, smooth_to_fps)
     m = res["metrics"]
@@ -175,6 +181,9 @@ def main() -> None:
                     help="動画ファイルの再生fps（スロー映像で撮影fpsと違うとき）。既定は --fps と同じ")
     ap.add_argument("--start", type=float, default=0.0,
                     help="関節データが元動画の何秒目から始まるか（切り出して復元したとき）")
+    ap.add_argument("--end", type=float, default=None,
+                    help="元動画の何秒目までを解析に使うか（動画は切らない。スロー再生が"
+                         "途中で実速度に戻る映像などで、末尾を外すため）")
     ap.add_argument("--coords", choices=("camera", "world"), default=None,
                     help="関節の座標系。省略時は s3_ 接頭辞なら camera、それ以外は world")
     ap.add_argument("--smooth-to-fps", type=float, default=None,
@@ -192,7 +201,7 @@ def main() -> None:
     d = domains.get(args.domain)
     res = build(args.joints, args.fps, args.domain,
                 args.label or d.label, args.video, out, args.max_width,
-                args.playback_fps, args.start, args.smooth_to_fps, args.coords)
+                args.playback_fps, args.start, args.smooth_to_fps, args.coords, args.end)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(sanitize(res), ensure_ascii=False, allow_nan=False),

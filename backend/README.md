@@ -36,7 +36,8 @@ python -m analysis --joints output_x/s3_joints.npy --fps 24 --domain baseball_pi
 - イメージ定義は `reconstruct_gemx.py` と**1文字も変えない**こと。同じならビルド済みレイヤを再利用する
 - 人物検出は同梱の vitdet（detectron2）ではなく GEM-X 側の YOLOX。ライセンスが軽く、イメージに既にある
 - 配列で渡すフレームは **RGB**。cv2 の BGR をそのまま渡すと、エラーなしで精度だけ落ちる
-- 出力は `s3_joints.npy`（SMPL24。骨盤・脊椎は導出）と `s3_mhr_keypoints.npy`（手を含む生の70点）
+- 出力は `s3_joints.npy`（SMPL24。骨盤・脊椎は導出）、`s3_mhr_keypoints.npy`（手を含む生の70点）、`s3_boxes.npy`（画像上の箱。左右の向きの検算用）
+- **動画を切り詰めなくてよい。** 1フレームずつ独立に推定するので、GVHMR のような前後の立ち姿によるドリフトが無い。全長を投げ、解析範囲は `make_clip.py --start/--end` で選ぶ
 
 以下は基準として使う GVHMR についての説明。
 
