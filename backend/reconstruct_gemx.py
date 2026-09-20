@@ -103,7 +103,7 @@ app = modal.App("gemx-reconstruct")
 vol = modal.Volume.from_name("gemx-assets", create_if_missing=True)
 
 # 重みは全部 nvidia/GEM-X にある。SAM-3D-Body も NVIDIA が再配布しているので、
-# Meta の申請制リポジトリを通す必要はない（＝全部 NVIDIA Open Model License）。
+# 配布元が同じでも SAM/MHR 等の第三者条項はそれぞれ確認する。
 HF_REPO = "nvidia/GEM-X"
 HF_FILES = [
     ("gem_soma.ckpt", "pretrained"),
@@ -180,9 +180,19 @@ def reconstruct(video_bytes: bytes, name: str,
     _link_assets()
 
     Path("inputs").mkdir(exist_ok=True)
-    stem = Path(name).stem
+    import hashlib
+    # Distinguish video contents and selected interval, not just a basename.
+    source_hash = hashlib.sha256(video_bytes).hexdigest()
+    cache_key = hashlib.sha256(f"{source_hash}:{start}:{end}:{GEMX_COMMIT}:v2".encode()).hexdigest()[:16]
+    stem = f"{Path(name).stem}_{cache_key}"
     src = f"inputs/{stem}.mp4"
     Path(src).write_bytes(video_bytes)
+
+    baked = f"inputs/{stem}_baked.mp4"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", src,
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+                    "-pix_fmt", "yuv420p", "-an", baked], check=True)
+    src = baked
 
     if start is not None or end is not None:
         trimmed = f"inputs/{stem}_trim.mp4"
@@ -229,106 +239,21 @@ def reconstruct(video_bytes: bytes, name: str,
     vol.commit()
     print(f"[debug] {keep}/{stem}_hpe_results.pt に保存しました")
 
-    # SOMA の姿勢パラメータ → 関節座標。世界座標とカメラ空間の両方を出す。
-    # デモの描画側は見栄えのために y の最小値を引いて接地させているが、
-    # ここでは**生のまま**返す。床合わせは解析側の責務（中央値を使う）で、
-    # 最小値で合わせるとクリップ中の一度の沈み込みが床になってしまう。
-    from soma import SomaLayer  # noqa: E402  イメージ内にのみ存在
-
-    dev = "cuda" if torch.cuda.is_available() else "cpu"
-    soma = SomaLayer(data_root="inputs/soma_assets", low_lod=True,
-                     device=dev, identity_model_type="mhr", mode="warp")
-
-    def body_params(space: str) -> dict:
-        """`body_params_global` か、末尾の揃う変種（`soma_params_global` 等）を拾う。
-
-        デモ側も同じ緩い探し方をしている（demo_soma.py の _get_body_params）。
-        チェックポイントの版でキー名が変わるため。
-        """
-        key = f"body_params_{space}"
-        if key in pred:
-            return pred[key]
-        tail = f"_params_{space}"
-        for k in pred:
-            if k.endswith(tail):
-                print(f"[{space}] キー名が {k} でした")
-                return pred[k]
-        raise KeyError(f"{key} も *{tail} も見つかりません: {list(pred)}")
-
-    import inspect
-
-    accepted = set(inspect.signature(soma.forward).parameters) - {"self"}
-    print(f"[soma] forward が受け取る引数: {sorted(accepted)}")
-
-    def base_kwargs(params: dict) -> dict:
-        """保存された姿勢パラメータを forward() の引数の形に直す。
-
-        forward() は全関節の回転をまとめた `poses` (F, J, 3) を取るが、
-        保存側は SMPL 流に `global_orient`（根の回転）と `body_pose`（残り）に
-        分かれている。連結して先頭を根にすれば `poses` になる。
-        すでに `poses` があるチェックポイント版もあるので、その場合はそのまま。
-        """
-        kw = {k: v for k, v in params.items() if k in accepted}
-        if "poses" not in kw and {"global_orient", "body_pose"} <= set(params):
-            go = params["global_orient"].reshape(len(params["body_pose"]), 1, 3)
-            bp = params["body_pose"].reshape(len(go), -1, 3)
-            kw["poses"] = torch.cat([go, bp], dim=1)
-            print(f"[poses] global_orient {tuple(go.shape)} + "
-                  f"body_pose {tuple(bp.shape)} → poses {tuple(kw['poses'].shape)}")
-        return kw
-
-    def variants(kw: dict):
-        """scale_params の解釈が確定しないので、候補を順に試す。
-
-        forward() の説明は `scale_params: (batch_size, 68)` だが、保存値は 69。
-        gem_pipeline.py は `global_scale = scale_params[..., 0]` と書いており、
-        先頭が全体スケールらしい。実際 MHR 内部の einsum が 322 対 321 と
-        ちょうど1つぶんずれる。ただしその後 scale_params[...,0] を書き戻して
-        いるので確証がない。動く形を実測で決める。
-        """
-        sp = kw.get("scale_params")
-        yield "そのまま", kw
-        if sp is not None and sp.shape[-1] > 1:
-            head = dict(kw)
-            head["scale_params"] = sp[..., 1:]
-            head["global_scale"] = sp[..., 0]
-            yield "先頭を global_scale として分離", head
-            drop = dict(kw)
-            drop["scale_params"] = sp[..., 1:]
-            yield "先頭を捨てる", drop
-
-    joints = {}
-    poses = {}
-    for space in ("global", "incam"):
-        params = body_params(space)
-        print(f"[{space}] 保存されているキー: "
-              + ", ".join(f"{k}{tuple(v.shape)}" if torch.is_tensor(v) else k
-                          for k, v in params.items()))
-        kw = base_kwargs(params)
-        out = None
-        for why, cand in variants(kw):
-            try:
-                with torch.no_grad():
-                    out = soma(**{k: (v.to(dev) if torch.is_tensor(v) else v)
-                                  for k, v in cand.items()})
-                print(f"[{space}] 通った解釈: {why}")
-                break
-            except (RuntimeError, TypeError) as e:
-                print(f"[{space}] 「{why}」は不可: {str(e).splitlines()[-1][:120]}")
-        if out is None:
-            raise RuntimeError(
-                f"{space}: scale_params の解釈がどれも通りませんでした")
-        joints[space] = out["joints"].cpu().numpy()
-        poses[space] = {k: (v.detach().cpu().numpy() if torch.is_tensor(v) else v)
-                        for k, v in params.items()}
-        print(f"[{space}] joints {joints[space].shape}")
+    # Use the same adapter as the pinned official demo: meters, explicit scale
+    # split, and repose_to_bind_pose=False. Success of a guessed API shape was
+    # not evidence that the anatomical rest pose was correct.
+    from core.gemx import decode_prediction
+    joints, poses = decode_prediction(pred)
 
     renders = {}
     for mp4 in sorted(glob.glob(f"{out_root}/{stem}/*.mp4")):
         renders[Path(mp4).name] = Path(mp4).read_bytes()
 
     return {"joints": joints, "poses": poses, "renders": renders,
-            "video_fps": video_fps}
+            "video_fps": video_fps,
+            "provenance": {"video_sha256": source_hash, "gemx_commit": GEMX_COMMIT,
+                           "decoder": "official_soma_adapter", "units": "m",
+                           "static_camera": static_cam, "start": start, "end": end}}
 
 
 @app.local_entrypoint()
@@ -368,8 +293,11 @@ def main(video: str, out: str = "output_gemx",
     np.save(d / "gx_joints_incam.npy", to_smpl24(soma_c))
     saved += ["gx_joints.npy", "gx_joints_soma.npy", "gx_joints_incam.npy"]
 
-    np.savez(d / "gx_pose.npz", **{f"global_{k}": v
-                                   for k, v in r["poses"]["global"].items()})
+    np.savez(d / "gx_pose.npz", **{f"{space}_{k}": v
+                                   for space, params in r["poses"].items()
+                                   for k, v in params.items()})
+    import json
+    (d / "provenance.json").write_text(json.dumps(r["provenance"], indent=2) + "\n")
     saved.append("gx_pose.npz")
 
     for fname, blob in r["renders"].items():

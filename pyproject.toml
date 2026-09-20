@@ -12,6 +12,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+refine = [
+    "scipy>=1.10,<2",
+]
 dev = [
     "pytest>=7.4",
 ]

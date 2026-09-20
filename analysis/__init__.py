@@ -46,17 +46,14 @@ def kinematics_for(joints: np.ndarray, fps: float, domain: str | None = None,
                    通常速度の映像では窓が1になり何も変わらない。
     level_window   (開始秒, 終了秒)。この区間で直立している前提で、頭−足首を
                    鉛直として関節列を回す（カメラの傾きの較正）。
-    anchor         接地している足が動かないよう並進を組み立て直す（`core/anchor.py`）。
-                   単一画像モデルの並進のゆらぎで体が床を滑るのを止める。
-                   順番は 水平 → 平滑化 → 足の固定。
+    anchor         計測には使わない（後方互換のため受け取るだけ）。足の固定は
+                   `analyze_json` が**表示用の関節列にだけ**掛ける。
     """
     d = domains.get(domain)
     joints = np.asarray(joints)
     if level_window is not None:
         joints, _ = level_from_upright(joints, level_window[0] * fps, level_window[1] * fps)
     joints = temporal_smooth(joints, window_for(fps, smooth_to_fps))
-    if anchor:
-        joints, _ = anchor_feet(joints, fps)
     return d, Kinematics(joints, fps, side=d.side(joints))
 
 
@@ -87,13 +84,24 @@ def analyze_json(joints: np.ndarray, fps: float = 30.0,
     """
     d, kin = kinematics_for(joints, fps, domain, smooth_to_fps, level_window, anchor)
     metrics = d.measure(kin, d.detect_phases(kin))
+    # 表示用は足をピン留めして滑りを 0 にする。計測用（metrics と
+    # measurement_joints）は生のまま。ピン留めは膝角を最大 12° 変えるので、
+    # 計測に混ぜてはいけない（Codex の指摘で発覚。2026-09-21）。
+    display, anchor_info = anchor_feet(kin.J, fps, pin_feet=True) if anchor else (kin.J, None)
     return {
         "domain": d.name,
         "metrics": metrics,
         "feedback": d.judge(metrics),
         "up_axis": [kin.up_ax, kin.up_sign],
         "smoothed_window": window_for(fps, smooth_to_fps),
-        "joints": kin.J.round(4).tolist(),  # (F,24,3) 3Dビューア用（平滑化後）
+        "joints": display.round(4).tolist(),  # 表示のみ。計測には下の座標を使う
+        "measurement_joints": kin.J.round(4).tolist(),
+        "processing": {
+            "measurement": "calibrated_then_smoothed; no foot anchoring",
+            "display": "feet pinned for display only" if anchor else "raw",
+            "display_anchor": anchor_info,
+            "level_window_s": list(level_window) if level_window is not None else None,
+        },
     }
 
 

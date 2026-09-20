@@ -39,3 +39,4 @@ docは消さない。完了後の価値は手順ではなく「なぜそうし�
 | [012](012-commercial-multidomain-direction.md) | 商用化と複数分野への展開方針・現行コードからの移行 | — | Proposal |
 | [013](013-posture-and-voice.md) | 姿勢 × 響き（オペラの結果を音声で測る） | — | Open |
 | [014](014-golf-sam3d-tilt-diagnosis.md) | ゴルフのSAM前傾差：座標・推定・後処理の切り分けと修正順 | — | Diagnosis / Proposal |
+| [015](015-golf-gemx-pose-refinement.md) | ゴルフのGEM-X精度：同一フレーム診断と改善実験 | — | Diagnosis / Proposal |

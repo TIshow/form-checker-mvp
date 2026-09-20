@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ゴルフ・精度改善の比較</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1015;--panel:#151d25;--line:#2b3743;--text:#e8eef4;--muted:#a6b4c2;--old:#e8a45e;--new:#64c8b2}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,-apple-system,sans-serif}
+main{max-width:1450px;padding:26px 22px 60px;margin:auto}h1{font-size:23px;margin:0}p{color:var(--muted)}
+.card{padding:17px;background:var(--panel);border:1px solid var(--line);border-radius:12px;margin:18px 0}
+.panes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}h2{font-size:14px;margin:0 0 9px}
+.view{height:440px;background:#080c10;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.view canvas{width:100%;height:100%;display:block}.source{position:relative}.source canvas{object-fit:contain}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}button,select,input[type=number]{font:inherit;background:#202d38;color:var(--text);border:1px solid #3a4b5a;padding:7px 12px;border-radius:6px}
+button{cursor:pointer}button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--new)}input[type=range]{flex:1;min-width:150px;accent-color:var(--new)}
+.meta{font-size:12px;color:var(--muted)}.old{color:var(--old)}.new{color:var(--new)}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.stat b{display:block;font-size:24px;color:var(--text)}
+table{width:100%;border-collapse:collapse}th,td{padding:10px;text-align:left;border-bottom:1px solid var(--line)}th{color:var(--muted);font-weight:400}
+@media(max-width:850px){.panes,.stats{grid-template-columns:1fr}.view{height:360px}}
+</style>
+<main>
+<h1>ゴルフ・精度改善の比較</h1>
+<p>同じ動画・同じフレームで、画像に合わせる前後の姿勢を確認します。</p>
+<div id="status" role="status">検証データを読み込み中…</div>
+<section class="card stats" id="stats"></section>
+<section class="card">
+ <div class="panes">
+  <div><h2>撮影した映像 <select id="overlay" aria-label="映像に重ねる関節"><option value="off">重ね表示なし</option><option value="after" selected>補正後</option><option value="before">補正前</option><option value="observed">2D検出</option></select></h2><div class="view source"><canvas id="source"></canvas></div></div>
+  <div><h2 class="old">GEM-X・公式経路</h2><div class="view" id="before"></div></div>
+  <div><h2 class="new">画像に合わせた補正・検証中</h2><div class="view" id="after"></div></div>
+ </div>
+ <div class="row" style="margin-top:18px"><button id="play">▶ 再生</button><select id="speed" aria-label="再生速度"><option value="0.25">1/4倍速</option><option value="0.5">1/2倍速</option><option value="1">通常速度</option></select><input id="scrub" aria-label="フレーム" type="range" min="0" value="0"><button id="front">正面</button><button id="side">側面</button></div>
+ <div class="row" id="phases" style="margin-top:12px"></div><div class="meta" id="frame"></div>
+</section>
+<section class="card"><h2>このフレームの比較</h2><table><thead><tr><th>項目</th><th class="old">補正前</th><th class="new">補正後</th></tr></thead><tbody id="values"></tbody></table>
+<p class="meta">骨長を保って画像上の関節に合わせた結果です。角度や手首の距離が変わったことだけで、正しい3D姿勢になったとは判断できません。前傾は側屈も含む体幹の傾きです。</p></section>
+<section class="card"><h2>検証の範囲</h2><p>補正に使わないフレームの2D検出との一致も確認しています。これは同じ動画内での検証で、別の人・別の撮影条件への精度や、奥行きの正確さを保証するものではありません。商用提供前には、カメラ較正と独立した参照データによる評価が必要です。</p></section>
+</main>
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import {createPane,linkCameras,BONES} from './skeleton.js';
+const $=id=>document.getElementById(id);const fmt=x=>Number.isFinite(x)?x.toFixed(1):'—';
+async function main(){
+ const name=new URLSearchParams(location.search).get('run')||'golf_accuracy';
+ if(!/^[a-zA-Z0-9_-]+$/.test(name))throw Error('比較データ名が不正です');
+ const base=`data/${name}/`;const response=await fetch(base+'review.json');if(!response.ok)throw Error('比較データがありません');
+ const data=await response.json();const report=data.report;const [old,next]=data.clips;
+ const fps=report.fps,F=old.joints.length;
+ if(next.joints.length!==F)throw Error('比較するフレーム数が一致しません');
+ $('status').textContent='検証用の結果です。3Dの測定精度は未確定です。';
+ const box=(label,value)=>`<div class="stat"><span class="meta">${label}</span><b>${value}</b></div>`;
+ $('stats').innerHTML=box('補正に使わないフレームでの画像とのずれ',`${fmt(report.heldout_median_px_before)} → ${fmt(report.heldout_median_px_after)} px`)+box('比較するフレーム',`${F} / ${fps} fps`)+box('骨長の扱い','腕・脚の長さを固定');
+ const panes=[createPane($('before'),old,old.color),createPane($('after'),next,next.color)];
+ linkCameras(panes,()=>true);
+ function view(side){for(const p of panes){p.camera.position.set(side?3.5:0,1.05,side?0:-3.5);p.controls.target.set(0,.95,0);p.controls.update();}}
+ view(false);$('front').onclick=()=>view(false);$('side').onclick=()=>view(true);
+ const video=document.createElement('video');video.src=base+'clip_video.mp4';video.muted=true;video.preload='auto';video.playsInline=true;
+ const canvas=$('source'),ctx=canvas.getContext('2d');[canvas.width,canvas.height]=data.image_size_wh;
+ let f=0,playing=false,last=performance.now(),elapsed=0;const held=new Set(report.heldout_frames);
+ function draw(){if(video.readyState<2)return;ctx.drawImage(video,0,0,canvas.width,canvas.height);const which=$('overlay').value;if(which==='off')return;
+  const pts=which==='observed'?data.keypoints_2d[f]:data[which==='before'?'projection_before':'projection_after'][f];ctx.strokeStyle=which==='before'?'#e8a45e':'#64c8b2';ctx.fillStyle=ctx.strokeStyle;ctx.lineWidth=4;
+  for(const [a,b]of BONES){if(which==='observed'&&(pts[a][2]<.3||pts[b][2]<.3))continue;ctx.beginPath();ctx.moveTo(...pts[a].slice(0,2));ctx.lineTo(...pts[b].slice(0,2));ctx.stroke();}
+  for(const p of pts){if(which==='observed'&&p[2]<.3)continue;ctx.beginPath();ctx.arc(p[0],p[1],6,0,Math.PI*2);ctx.fill();}}
+ video.addEventListener('seeked',draw);video.addEventListener('loadeddata',draw);$('overlay').onchange=draw;
+ const sub=(a,b)=>a.map((v,i)=>v-b[i]);const norm=a=>Math.hypot(...a);const angle=(a,b)=>Math.acos(Math.max(-1,Math.min(1,a.reduce((s,v,i)=>s+v*b[i],0)/(norm(a)*norm(b)))))*180/Math.PI;
+ function vals(fr){return [norm(sub(fr[20],fr[21]))*100,angle(sub(fr[1],fr[4]),sub(fr[7],fr[4])),angle(sub(fr[17],fr[19]),sub(fr[21],fr[19])),angle(sub(fr[12],fr[0]),[0,1,0])];}
+ function apply(frame){f=Math.max(0,Math.min(F-1,Math.round(frame)));$('scrub').value=f;for(const p of panes)p.setFrame(f);video.currentTime=f/fps;
+  $('frame').textContent=`frame ${f} / ${F-1} ・ ${(f/fps).toFixed(2)}秒 ・ ${held.has(f)?'2D補正には使わず評価したフレーム':'2D補正に使ったフレーム'}`;
+  const a=vals(old.measurement_joints[f]),b=vals(next.measurement_joints[f]);const labels=['両手首の距離（cm）','左膝角（°）','右肘角（°）','体幹の傾き（°）'];$('values').innerHTML=labels.map((label,i)=>`<tr><th>${label}</th><td>${fmt(a[i])}</td><td>${fmt(b[i])}</td></tr>`).join('');}
+ const labels={address:'アドレス',top:'トップ候補',impact:'インパクト候補',finish:'フィニッシュ候補'};
+ for(const [key,label]of Object.entries(labels)){const frame=old.metrics.phases[key];if(!Number.isInteger(frame))continue;const button=document.createElement('button');button.textContent=label;button.onclick=()=>{playing=false;$('play').textContent='▶ 再生';apply(frame)};$('phases').append(button);}
+ $('scrub').max=F-1;$('scrub').oninput=e=>{playing=false;$('play').textContent='▶ 再生';apply(+e.target.value)};
+ $('play').onclick=()=>{playing=!playing;$('play').textContent=playing?'⏸ 停止':'▶ 再生';elapsed=0;};apply(0);
+ function animate(now){const dt=Math.min(now-last,100);last=now;if(playing&&!video.seeking){elapsed+=dt/1000*fps*+$('speed').value;if(elapsed>=1){apply((f+Math.floor(elapsed))%F);elapsed%=1;}}for(const p of panes)p.render();requestAnimationFrame(animate)}requestAnimationFrame(animate);
+}
+main().catch(e=>{$('status').textContent=`読み込めませんでした：${e.message}`;console.error(e)});
+</script></html>
