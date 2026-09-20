@@ -65,6 +65,7 @@
         </select>
       </label>
       <input type="range" id="scrub" min="0" value="0" />
+      <button id="viewBtn" title="回して見たあと、元映像と同じ横向きの視点に戻す">↺ 映像と同じ視点</button>
     </div>
     <div class="row" id="phases" style="margin-top:10px"></div>
     <div class="meta" id="meta"></div>
@@ -139,28 +140,40 @@ async function main() {
 
   const pane = createPane($("skelBox"), clip, 0x9ad0ff);
 
-  // 視点をクリップに合わせる。既定の位置はサーブ（その場で跳ぶ）向けで、
-  // 投球のように1m以上前へ動く動作では被写体が枠から外れて小さくなる。
-  // 全フレームの外接箱を測って、それが収まる距離までカメラを下げる。
-  (function frameToFit() {
+  // 視点は**元の映像と同じ横向き・目の高さ**を既定にする。
+  //
+  // 以前は斜め上から見下ろす位置に置いていた。見た目は立体的だが、
+  // 見下ろす視点では鉛直線が下に向かって外側へ開く（透視の消失点）ので、
+  // **真っ直ぐ立っている体が傾いて見える**。実際に「3D復元が左に傾いて
+  // ありえない」と指摘され、正面図で確かめたら体は鉛直から数度しか
+  // 傾いていなかった。元映像と見比べる用途では、映像と同じ視点に置く。
+  //
+  // toDisplay は腰の左→右を +X に揃えるので、投球なら投球方向が X 軸、
+  // 横から撮った映像の奥行きが Z 軸になる。カメラを −Z 側に置くと
+  // +X が画面左に来て、映像と左右が合う。
+  const fit = (function () {
     let lo = [ Infinity,  Infinity,  Infinity];
     let hi = [-Infinity, -Infinity, -Infinity];
     for (const fr of pane.disp) for (const p of fr) for (let k = 0; k < 3; k++) {
       if (p[k] < lo[k]) lo[k] = p[k];
       if (p[k] > hi[k]) hi[k] = p[k];
     }
-    const cy = (lo[1] + hi[1]) / 2;
-    const h = Math.max(hi[1] - lo[1], 1.4);                       // 縦の広がり
-    const w = Math.max(Math.hypot(hi[0] - lo[0], hi[2] - lo[2]), 1.0);  // 横の広がり
-    // 高さ H を画角に収める距離は H / (2·tan(fov/2))。横は画面の縦横比ぶん割る。
+    const c = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
+    const h = Math.max(hi[1] - lo[1], 1.4);
+    const w = Math.max(hi[0] - lo[0], 1.0);
     const t = Math.tan(pane.camera.fov * Math.PI / 360);
     const a = pane.camera.aspect || 1;
-    const dist = Math.max(h / (2 * t), w / (2 * t * a)) * 1.25 + 0.5;
-    // 少しだけ見下ろす。真横だと奥行きが分からず、真上からだと形が潰れる
-    pane.camera.position.set(dist * 0.78, cy + dist * 0.22, dist * 0.60);
-    pane.controls.target.set((lo[0] + hi[0]) / 2, cy, (lo[2] + hi[2]) / 2);
-    pane.controls.update();
+    const dist = Math.max(h / (2 * t), w / (2 * t * a)) * 1.2 + 0.4;
+    return { c, dist };
   })();
+  function viewFromSide() {
+    // 目の高さ、ほんの少しだけ上から（床のグリッドが見える程度）
+    pane.camera.position.set(fit.c[0], fit.c[1] + fit.dist * 0.06, fit.c[2] - fit.dist);
+    pane.controls.target.set(fit.c[0], fit.c[1], fit.c[2]);
+    pane.controls.update();
+  }
+  viewFromSide();
+  $("viewBtn").onclick = viewFromSide;
 
   window.__clip = { clip, pane };            // ローカル検証用
 
