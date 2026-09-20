@@ -6,7 +6,7 @@
 |---|---|---|---|
 | `reconstruct_sam3d.py` | **SAM 3D Body + MHR** | SAM License（商用可）+ Apache-2.0 | **出荷用。** 人に見せる結果はこれで作る |
 | `reconstruct.py` | GVHMR | **非商用** | **基準。** 検証・突き合わせにだけ使う。外に出さない |
-| `reconstruct_gemx.py` | GEM-X | Apache-2.0 + NVIDIA Open Model | 評価記録。**SAM 3D Body のイメージと重みの供給元**なので消せない |
+| `reconstruct_gemx.py` | GEM-X | Apache-2.0 + NVIDIA Open Model | **ゴルフの出荷候補**（前傾角・局面・ジッタで GVHMR と一致。issue 011 §7d）。テニスでは腕の鞭動作が崩れる。SAM 3D Body のイメージと重みの供給元でもある |
 | `reconstruct_tram.py` | TRAM | MIT（SMPL 依存） | 評価記録 |
 
 ## 役割分担（2026-09-20）
