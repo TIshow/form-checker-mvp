@@ -37,3 +37,4 @@ docは消さない。完了後の価値は手順ではなく「なぜそうし�
 | [010](010-outcome-measurement.md) | 結果を測る（ボール速度・コース・ポイント） | — | Open |
 | [011](011-commercial-architecture.md) | 商用化に向けた構成の転換（三脚前提・蒸留・結果計測） | — | Open |
 | [012](012-commercial-multidomain-direction.md) | 商用化と複数分野への展開方針・現行コードからの移行 | — | Proposal |
+| [013](013-posture-and-voice.md) | 姿勢 × 響き（オペラの結果を音声で測る） | — | Open |
