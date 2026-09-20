@@ -109,14 +109,113 @@ def verify_against_asset(npz_path: str) -> list[str]:
 
 
 # --------------------------------------------------------------------------
-# 次に増える骨格: MHR（Meta Momentum Human Rig, 127関節・Apache-2.0）
+# MHR（Meta Momentum Human Rig）→ SMPL 24
 #
-# SAM 3D Body は MHR パラメータを直接返す（issue 011）。採用するなら
-# `to_smpl24` と同じ形で `mhr_to_smpl24` をここに足す。上の SOMA と同様、
-# **添字を1つ間違えても「それらしい数字」が出てしまう**ため、
-# `verify_against_asset` に相当する照合を必ず併せて書くこと。
+# SAM 3D Body が返すキーポイント。308点のうち**先頭70点**が体で、残りは顔
+# （`sam_3d_body/metadata/mhr70.py`）。名前は COCO 式なので、SOMA のときとは
+# 事情が違う:
 #
-# MHR は手と顔を持つので、24関節に落とすと情報を捨てることになる。
-# ラケット/クラブのグリップ（issue 006）に使うなら、24関節に潰さず
-# 手の関節を別に持ち回る設計が要る。
+#   SOMA は SMPL と同じ階層を持っていたので**並べ替えるだけ**で済んだ。
+#   MHR-70 には **骨盤も脊椎も無い**。導出が要る。
+#
+# 導出したものは「ほぼ正しい位置」であって、SMPL の回帰器が出す関節とは
+# 一致しない。**手法間で絶対値を比べるときはこの差を見込むこと。**
 # --------------------------------------------------------------------------
+
+MHR70_JOINTS = 70
+
+#: SMPL24 の添字 -> MHR-70 の添字。None は下の `_derive` で作る。
+SMPL24_FROM_MHR70: list[tuple[str, int | None]] = [
+    ("pelvis（左右股関節の中点）", None),   # 0
+    ("left-hip", 9),                        # 1
+    ("right-hip", 10),                      # 2
+    ("spine1（骨盤→首の 1/4）", None),      # 3
+    ("left-knee", 11),                      # 4
+    ("right-knee", 12),                     # 5
+    ("spine2（骨盤→首の 1/2）", None),      # 6
+    ("left-ankle", 13),                     # 7
+    ("right-ankle", 14),                    # 8
+    ("spine3（骨盤→首の 3/4）", None),      # 9
+    ("left-big-toe-tip", 15),               # 10
+    ("right-big-toe-tip", 18),              # 11
+    ("neck", 69),                           # 12
+    ("left-acromion", 67),                  # 13
+    ("right-acromion", 68),                 # 14
+    ("head（左右耳の中点）", None),          # 15
+    ("left-shoulder", 5),                   # 16
+    ("right-shoulder", 6),                  # 17
+    ("left-elbow", 7),                      # 18
+    ("right-elbow", 8),                     # 19
+    ("left-wrist", 62),                     # 20
+    ("right-wrist", 41),                    # 21
+    ("left-middle-first-joint", 51),        # 22  手＝中指の付け根
+    ("right-middle-first-joint", 30),       # 23
+]
+
+_L_HIP70, _R_HIP70, _NECK70 = 9, 10, 69
+_L_EAR70, _R_EAR70 = 3, 4
+
+
+def mhr70_to_smpl24(joints: np.ndarray) -> np.ndarray:
+    """SAM 3D Body の MHR キーポイントを SMPL 24関節の並びにする。
+
+    joints: (F, 70以上, 3) — 308点でも先頭70点だけ使う
+    戻り値: (F, 24, 3)
+
+    ## 導出しているもの
+
+    骨盤 = 左右股関節の中点。脊椎3点 = 骨盤→首を4等分。
+    頭 = 左右耳の中点（鼻ではない。SMPL の head は頭蓋の中心寄りで、
+    鼻を使うと身長が 10cm ほど低く出て、体格で正規化した指標がずれる）。
+
+    脊椎と鎖骨は `core/kinematics.py` の計測では**使っていない**
+    （体節質量比は骨盤→首を1本の体幹として扱う）。ビューアとアバターの
+    見た目のためだけに埋めている。
+    """
+    joints = np.asarray(joints, dtype=float)
+    if joints.ndim != 3 or joints.shape[-1] != 3:
+        raise ValueError(f"(F, J, 3) を期待しましたが {joints.shape} でした")
+    if joints.shape[1] < MHR70_JOINTS:
+        raise ValueError(
+            f"MHR のキーポイントは {MHR70_JOINTS} 点以上のはずですが "
+            f"{joints.shape[1]} でした。SAM 3D Body の出力が変わった可能性があります"
+        )
+
+    F = joints.shape[0]
+    out = np.zeros((F, 24, 3))
+    for smpl_i, (_, mhr_i) in enumerate(SMPL24_FROM_MHR70):
+        if mhr_i is not None:
+            out[:, smpl_i] = joints[:, mhr_i]
+
+    pelvis = (joints[:, _L_HIP70] + joints[:, _R_HIP70]) / 2
+    neck = joints[:, _NECK70]
+    out[:, 0] = pelvis
+    for smpl_i, t in ((3, 0.25), (6, 0.50), (9, 0.75)):
+        out[:, smpl_i] = pelvis + (neck - pelvis) * t
+    out[:, 15] = (joints[:, _L_EAR70] + joints[:, _R_EAR70]) / 2
+    return out
+
+
+def verify_mhr_names(names: list[str]) -> list[str]:
+    """SAM 3D Body の `mhr70.py` の並びと照合し、食い違いを返す。
+
+        from sam_3d_body.metadata.mhr70 import mhr_names
+        assert not verify_mhr_names(mhr_names)
+
+    添字を手で書いている以上、上流が並びを変えたら黙って壊れる。
+    取り違えても**それらしい数字が出てしまう**ので、必ず通すこと。
+    """
+    bad = []
+    if len(names) < MHR70_JOINTS:
+        return [f"mhr_names が {len(names)} 個（{MHR70_JOINTS} 以上を期待）"]
+    for label, i in SMPL24_FROM_MHR70:
+        if i is None:
+            continue
+        if names[i] != label:
+            bad.append(f"添字 {i} は {label} のはずが {names[i]} でした")
+    for i, want in ((_L_HIP70, "left-hip"), (_R_HIP70, "right-hip"),
+                    (_NECK70, "neck"), (_L_EAR70, "left-ear"),
+                    (_R_EAR70, "right-ear")):
+        if names[i] != want:
+            bad.append(f"導出に使う添字 {i} は {want} のはずが {names[i]} でした")
+    return bad

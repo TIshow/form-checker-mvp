@@ -413,6 +413,44 @@ def test_soma_mapping_absorbs_missing_root():
     assert np.array_equal(to_smpl24(j78), to_smpl24(j77) + 1.0)
 
 
+def test_mhr_mapping_is_shaped_and_derives_missing_joints():
+    """MHR-70 → SMPL24。**骨盤と脊椎は MHR に無いので導出している。**
+
+    SOMA のときと違い単なる並べ替えではないので、導出のしかたを固定する。
+    ここがずれると重心（体幹が全体の49.7%）と体幹の傾きが黙って狂う。
+    """
+    import numpy as np
+    from core.convert import mhr70_to_smpl24
+    J = np.arange(3 * 308 * 3, dtype=float).reshape(3, 308, 3)
+    out = mhr70_to_smpl24(J)
+    assert out.shape == (3, 24, 3)
+    assert np.allclose(out[:, 0], (J[:, 9] + J[:, 10]) / 2)      # 骨盤
+    assert np.allclose(out[:, 15], (J[:, 3] + J[:, 4]) / 2)      # 頭=両耳の中点
+    assert np.allclose(out[:, 6], (out[:, 0] + out[:, 12]) / 2)  # 脊椎2
+    assert np.allclose(out[:, 20], J[:, 62])                     # 左手首
+    assert np.allclose(out[:, 21], J[:, 41])                     # 右手首
+
+
+def test_mhr_mapping_checks_itself_against_upstream_names():
+    """上流が並びを変えたら気付けること。
+
+    取り違えても**それらしい数字が出てしまう**ので、照合は必須。
+    実際 backend/reconstruct_sam3d.py は推論前にこれを通し、
+    食い違ったら止まる。
+    """
+    from core.convert import SMPL24_FROM_MHR70, verify_mhr_names
+    names = ["x"] * 70
+    for label, i in SMPL24_FROM_MHR70:
+        if i is not None:
+            names[i] = label
+    for i, nm in ((9, "left-hip"), (10, "right-hip"), (69, "neck"),
+                  (3, "left-ear"), (4, "right-ear")):
+        names[i] = nm
+    assert verify_mhr_names(names) == []
+    names[41] = "left-wrist"            # 左右を取り違える
+    assert any("41" in b for b in verify_mhr_names(names))
+
+
 def test_soma_mapping_rejects_unknown_joint_count():
     import numpy as np
     import pytest
