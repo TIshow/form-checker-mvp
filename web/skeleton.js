@@ -123,10 +123,17 @@ export function createPane(host, clip, color) {
     boneGeom.attributes.position.needsUpdate = true;
 
     // 局面の色。1フレームだけだと再生中に見逃すので前後1フレームまで含める。
-    const ph = clip.metrics.phases;
+    // 局面名は競技ごとに違う（サーブ=沈み込み/打点、投球=接地/リリース）ので、
+    // clip.highlight があればそれを使い、無ければサーブの既定に落とす。
     const near = (a, b) => Math.abs(a - b) <= 1;
-    const col = near(f, ph.contact) ? CONTACT_COLOR
-              : near(f, ph.loading) ? LOADING_COLOR : color;
+    let col = color;
+    if (clip.highlight) {
+      for (const h of clip.highlight) if (near(f, h.frame)) { col = h.color; break; }
+    } else {
+      const ph = clip.metrics.phases;
+      col = near(f, ph.contact) ? CONTACT_COLOR
+          : near(f, ph.loading) ? LOADING_COLOR : color;
+    }
     for (const s of spheres) s.material.color.setHex(col);
     return fr;
   }

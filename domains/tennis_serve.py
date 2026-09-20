@@ -90,6 +90,16 @@ class TennisServe:
     headline = ("contact_height_m", "com_rise_m", "min_knee_deg_overall",
                 "elbow_at_contact_deg", "racket_drop_deg")
     plot_phases = ("loading", "contact")
+    #: 表示用: 指標キー -> (ラベル, 単位, 小数桁, 向きの説明)
+    metric_labels = {
+        "contact_height_m": ("打点の高さ", "m", 2, "床から"),
+        "com_rise_m": ("重心の伸び上がり", "m", 2, "沈み込み→頂点"),
+        "min_knee_deg_overall": ("沈み込みの膝角", "°", 0, "小さいほど深い"),
+        "elbow_at_contact_deg": ("打点の肘角", "°", 0, "大きいほど伸びている"),
+        "racket_drop_deg": ("ラケットドロップ", "°", 0, "大きいほど深く落ちている"),
+    }
+    #: 局面 -> 表示名
+    phase_labels = {"loading": "沈み込み", "com_peak": "重心の頂点", "contact": "打点"}
 
     # -- 利き側 ------------------------------------------------------------
     def side(self, joints: np.ndarray) -> str:

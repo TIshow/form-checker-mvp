@@ -1,0 +1,213 @@
+<meta charset="utf-8" />
+<title>フォーム解析</title>
+<style>
+  :root { --bg:#0b0e12; --card:#141a22; --line:#232b36; --fg:#e6edf5;
+          --mute:#93a1b3; --warn:#fcd9a0; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.65 -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  main { max-width:1280px; margin:0 auto; padding:20px 18px 60px; }
+  h1 { font-size:21px; margin:0 0 4px; font-weight:600; }
+  .sub { color:var(--mute); font-size:13px; margin:0 0 18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:14px; margin-bottom:16px; }
+  h2 { font-size:15px; margin:0 0 10px; font-weight:600; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  button, select { background:#1c2632; color:var(--fg); border:1px solid var(--line);
+           border-radius:8px; padding:7px 13px; font-size:14px; cursor:pointer; }
+  button.on { background:#2563eb; border-color:#2563eb; }
+  button.phase { font-size:13px; padding:6px 11px; }
+  button.phase .tag { width:9px; height:9px; border-radius:3px;
+                      display:inline-block; margin-right:6px; }
+  input[type=range] { flex:1; min-width:260px; accent-color:#2563eb; }
+  /* minmax(0,1fr) が要点。これが無いと列は内容より狭くならず、
+     キャンバスが列を押し広げ続ける増幅ループになる。 */
+  #stage { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+  .box { background:#080b0f; border:1px solid var(--line); border-radius:8px;
+         height:440px; overflow:hidden; display:flex; align-items:center;
+         justify-content:center; }
+  .box canvas, .box video { display:block; width:100%; height:100%; object-fit:contain; }
+  h4 { margin:0 0 6px; font-size:13px; font-weight:600; color:var(--mute); }
+  .meta { color:var(--mute); font-size:12px; margin-top:6px;
+          font-variant-numeric:tabular-nums; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { padding:8px 9px; border-bottom:1px solid var(--line); text-align:left;
+           font-variant-numeric:tabular-nums; }
+  th { color:var(--mute); font-weight:500; }
+  td.val { font-size:17px; font-weight:600; }
+  td.na { color:var(--mute); font-weight:400; font-size:14px; }
+  .dir { color:var(--mute); font-size:12px; }
+  .note { color:var(--mute); font-size:13px; margin-top:10px; }
+  .warn { background:#2a1f14; border:1px solid #7c5a1e; color:var(--warn);
+          border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:14px; }
+  @media (max-width:900px) { #stage { grid-template-columns:1fr; } }
+</style>
+
+<main>
+  <h1 id="title">読み込み中…</h1>
+  <p class="sub" id="sub"></p>
+
+  <div id="note" class="warn" hidden></div>
+
+  <div class="card">
+    <div id="stage">
+      <div><h4>元の映像</h4><div class="box" id="videoBox"></div></div>
+      <div><h4 id="skelTitle">3D復元</h4><div class="box" id="skelBox"></div></div>
+    </div>
+
+    <div class="row" style="margin-top:12px">
+      <button id="play">▶ 再生</button>
+      <label class="meta">速度
+        <select id="speed">
+          <option value="1">1x</option>
+          <option value="0.5">1/2</option>
+          <option value="0.25" selected>1/4</option>
+          <option value="0.1">1/10</option>
+        </select>
+      </label>
+      <input type="range" id="scrub" min="0" value="0" />
+    </div>
+    <div class="row" id="phases" style="margin-top:10px"></div>
+    <div class="meta" id="meta"></div>
+  </div>
+
+  <div class="card">
+    <h2>計測値</h2>
+    <table id="metrics"></table>
+    <p class="note" id="judged"></p>
+  </div>
+</main>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import { createPane } from "./skeleton.js";
+
+const $ = id => document.getElementById(id);
+const hex = n => "#" + n.toString(16).padStart(6, "0");
+
+function metricsTable(clip) {
+  const rows = clip.headline.map(h => {
+    // value が null＝「測れなかった」。NaN を握り潰して 0 を出すより、
+    // 測れないと書く方が常に良い（指標の向きを誤読させない）。
+    const na = h.value === null || h.value === undefined;
+    const v = na ? "測定できません"
+                 : `${h.value.toFixed(h.digits)}${h.unit ? " " + h.unit : ""}`;
+    return `<tr><th>${h.label}</th>`
+         + `<td class="${na ? "na" : "val"}">${v}</td>`
+         + `<td class="dir">${h.note || ""}</td></tr>`;
+  });
+  $("metrics").innerHTML = rows.join("");
+}
+
+async function main() {
+  let clip;
+  try {
+    clip = await (await fetch("data/clip.json")).json();
+  } catch (e) {
+    $("title").textContent = "data/clip.json を読めません";
+    $("sub").textContent = "tools/make_clip.py で生成してください。";
+    return;
+  }
+
+  $("title").textContent = clip.label;
+  $("sub").textContent =
+    `${clip.domain_label}　${clip.metrics.n_frames}フレーム @${clip.fps.toFixed(0)}fps`;
+  if (clip.note) { $("note").textContent = "⚠️ " + clip.note; $("note").hidden = false; }
+  metricsTable(clip);
+  $("judged").textContent = clip.judged
+    ? ""
+    : "このドメインはまだ判定ルールを持っていません（計測値の表示のみ）。"
+      + "閾値は出典を確認してから入れます。";
+
+  // 元動画。無ければ骨格だけを全幅で出す
+  let video = null;
+  if (clip.video) {
+    video = document.createElement("video");
+    video.src = "data/" + clip.video;
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    $("videoBox").appendChild(video);
+  } else {
+    $("videoBox").parentElement.remove();
+    $("stage").style.gridTemplateColumns = "minmax(0,1fr)";
+  }
+
+  const pane = createPane($("skelBox"), clip, 0x9ad0ff);
+
+  // 視点をクリップに合わせる。既定の位置はサーブ（その場で跳ぶ）向けで、
+  // 投球のように1m以上前へ動く動作では被写体が枠から外れて小さくなる。
+  // 全フレームの外接箱を測って、それが収まる距離までカメラを下げる。
+  (function frameToFit() {
+    let lo = [ Infinity,  Infinity,  Infinity];
+    let hi = [-Infinity, -Infinity, -Infinity];
+    for (const fr of pane.disp) for (const p of fr) for (let k = 0; k < 3; k++) {
+      if (p[k] < lo[k]) lo[k] = p[k];
+      if (p[k] > hi[k]) hi[k] = p[k];
+    }
+    const cy = (lo[1] + hi[1]) / 2;
+    const h = Math.max(hi[1] - lo[1], 1.4);                       // 縦の広がり
+    const w = Math.max(Math.hypot(hi[0] - lo[0], hi[2] - lo[2]), 1.0);  // 横の広がり
+    // 高さ H を画角に収める距離は H / (2·tan(fov/2))。横は画面の縦横比ぶん割る。
+    const t = Math.tan(pane.camera.fov * Math.PI / 360);
+    const a = pane.camera.aspect || 1;
+    const dist = Math.max(h / (2 * t), w / (2 * t * a)) * 1.25 + 0.5;
+    // 少しだけ見下ろす。真横だと奥行きが分からず、真上からだと形が潰れる
+    pane.camera.position.set(dist * 0.78, cy + dist * 0.22, dist * 0.60);
+    pane.controls.target.set((lo[0] + hi[0]) / 2, cy, (lo[2] + hi[2]) / 2);
+    pane.controls.update();
+  })();
+
+  window.__clip = { clip, pane };            // ローカル検証用
+
+  // 局面へ飛ぶボタン。デモではここを押して見せるのが一番伝わる
+  $("phases").innerHTML = clip.phase_list.map(p =>
+    `<button class="phase" data-f="${p.frame}">`
+    + `<span class="tag" style="background:${hex(p.color)}"></span>`
+    + `${p.label} <span class="meta">${p.t.toFixed(2)}s</span></button>`).join("");
+  for (const b of $("phases").querySelectorAll("button")) {
+    b.onclick = () => { playing = false; $("play").textContent = "▶ 再生"; apply(+b.dataset.f); };
+  }
+
+  const scrub = $("scrub"), play = $("play");
+  scrub.max = String(pane.frames - 1);
+  let f = 0, playing = false;
+  let speed = parseFloat($("speed").value);
+  $("speed").onchange = () => { speed = parseFloat($("speed").value); };
+
+  function apply(v) {
+    f = Math.max(0, Math.min(pane.frames - 1, Math.round(v)));
+    scrub.value = String(f);
+    pane.setFrame(f);
+    // 動画は自前で再生せず、常にフレーム番号から時刻を決める。
+    // video.play() に任せると 3D 側とじわじわずれる。
+    if (video && video.readyState >= 1) video.currentTime = f / clip.fps;
+    const here = clip.phase_list.filter(p => p.frame === f).map(p => p.label).join("　");
+    $("meta").textContent = `frame ${f} / ${scrub.max}　${(f / clip.fps).toFixed(2)}s`
+      + (here ? `　← ${here}` : "");
+  }
+  scrub.oninput = () => { playing = false; play.textContent = "▶ 再生"; apply(scrub.value); };
+  play.onclick = () => { playing = !playing; play.textContent = playing ? "⏸ 停止" : "▶ 再生"; };
+
+  if (video) video.addEventListener("loadeddata", () => apply(f), { once: true });
+  apply(0);
+
+  let prev = 0, acc = 0;
+  function loop(now) {
+    const dt = Math.min((now - prev) / 1000, 0.1); prev = now;
+    if (playing) {
+      acc += dt * clip.fps * speed;
+      if (acc >= 1) { const s = Math.floor(acc); acc -= s; apply((f + s) % pane.frames); }
+    }
+    pane.render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+}
+
+main();
+</script>

@@ -53,8 +53,18 @@ class BaseballPitch(NotImplementedDomain):
     label = "野球 投球（指標のみ）"
     chain_min_fps = PITCH_CHAIN_MIN_FPS
     headline = ("stride_ratio", "hip_shoulder_separation_deg",
-                "lead_knee_at_release_deg", "trunk_lean_at_release_deg")
+                "lead_knee_at_release_deg", "trunk_lean_at_release_deg",
+                "elbow_at_release_deg")
     plot_phases = ("foot_contact", "release")
+    metric_labels = {
+        "stride_ratio": ("ストライド", "身長比", 2, "大きいほど広い"),
+        "hip_shoulder_separation_deg": ("股関節と肩の分離", "°", 0, "接地時"),
+        "lead_knee_at_release_deg": ("リリース時のリード膝", "°", 0, "大きいほど伸びている"),
+        "trunk_lean_at_release_deg": ("リリース時の体幹", "°", 0, "鉛直からの傾き"),
+        "elbow_at_release_deg": ("リリース時の肘角", "°", 0, "大きいほど伸びている"),
+    }
+    phase_labels = {"lift": "足上げ", "foot_contact": "踏み出し足の接地",
+                    "release": "リリース"}
 
     evidence_needed = (
         "最大外旋(MER)を測る手段。上腕の軸回転は関節位置に出ない",

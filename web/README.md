@@ -140,3 +140,17 @@ VRM は `web/avatar/avatar.vrm` に置く（gitignore 済み。ライセンス�
 - Modal の URL を直書き。Vercel 化時は環境変数 or API プロキシに
 - 3Dビューアは**骨格のみ**（フルメッシュは reconstruct が頂点を返す拡張が必要）
 - 元動画への骨格オーバーレイ、履歴、認証はスコープ外（別issue）
+
+## clip.html — 1本を見る（競技を問わない）
+
+元動画と3D骨格を並べ、フレームを同期させる。局面のボタンで飛べる。
+指標のラベルと向きの説明は各ドメインの `metric_labels` から来るので、
+競技を足しても HTML は触らない。
+
+```bash
+python tools/make_clip.py --joints output_pitch_s3/s3_joints.npy --fps 24 \
+    --domain baseball_pitch --video videos/baseball/x.mp4 --label "投球フォーム解析"
+python web/devserver.py   # → http://127.0.0.1:8123/clip.html
+```
+
+測れなかった指標は **「測定できません」** と出る（NaN を 0 にしない）。

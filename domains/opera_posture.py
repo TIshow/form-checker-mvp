@@ -50,6 +50,14 @@ class OperaPosture(NotImplementedDomain):
                 "shoulder_tilt_mean_deg", "trunk_length_change_cm")
     #: 局面が無いので重心グラフは描かない
     plot_phases = ()
+    metric_labels = {
+        "head_forward_cm": ("頭部の前後位置", "cm", 1, "肩の中点から"),
+        "trunk_lean_mean_deg": ("体幹の傾き", "°", 1, "鉛直から・平均"),
+        "com_sway_cm": ("重心の揺れ", "cm", 1, "平均位置からのRMS"),
+        "shoulder_tilt_mean_deg": ("肩の左右差", "°", 1, "平均"),
+        "trunk_length_change_cm": ("体幹長の変化", "cm", 1, "胸郭の挙上の粗い代用"),
+    }
+    phase_labels = {"start": "開始", "end": "終了"}
 
     evidence_needed = (
         "SMPL 24関節で足りるかの実機検証。頸椎の詳細・胸郭・顎が無い",

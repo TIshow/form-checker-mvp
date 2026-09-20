@@ -45,6 +45,16 @@ class GolfSwing(NotImplementedDomain):
                 "tempo_ratio", "lead_knee_at_impact_deg")
     #: 重心グラフはダウンスイング（トップ→インパクト）を見たい
     plot_phases = ("top", "impact")
+    metric_labels = {
+        "x_factor_at_top_deg": ("トップの捻転差", "°", 0, "位置ベース・弱い指標"),
+        "head_move_cm": ("頭の上下動", "cm", 1, "小さいほど軸が安定"),
+        "spine_tilt_change_deg": ("前傾の変化", "°", 0, "アドレス→インパクト"),
+        "tempo_ratio": ("テンポ比", "", 2, "バックスイング:ダウンスイング"),
+        "lead_knee_at_impact_deg": ("インパクトのリード膝", "°", 0, "大きいほど伸びている"),
+    }
+    phase_labels = {"address": "アドレス", "takeaway": "テイクバック",
+                    "top": "トップ", "impact": "インパクト（代用）",
+                    "finish": "フィニッシュ"}
 
     evidence_needed = (
         "インパクトの検出をクラブ追跡で置き換える（今は手の高さの最低点という代用）",
