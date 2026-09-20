@@ -234,7 +234,7 @@ GEM-X が `body_params_incam` を返すので、そのまま実行できる。
 3. **精度が足りるか。** 膝・肘・体幹の角度が GVHMR と同等以上か
 4. **手が使えるか。** 77関節に手が入っている。テニスならグリップや
    手首の使い方に直結する（[006](006-racket-tracking.md) のラケット追跡にも効く）
-5. **移行コスト。** `analysis/serve.py` も `web/avatar.js` も **SMPL の24関節前提**。
+5. **移行コスト。** `core/kinematics.py` も `web/avatar.js` も **SMPL の24関節前提**。
    SOMA 77関節への対応表を作る作業が要る
 6. **計算資源。** Modal のイメージを作り直すことになる
 

@@ -40,9 +40,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from analysis.serve import (  # noqa: E402
-    L_ANKLE, L_FOOT, R_ANKLE, R_FOOT, compute_com, detect_up_axis,
-)
+from core import compute_com, detect_up_axis  # noqa: E402
+from core.skeleton import FOOT_IDS  # noqa: E402
 
 G = 9.81            # m/s²
 MAX_RMS_M = 0.005   # 放物線からのずれがこれ以下なら自由落下とみなす（5mm）
@@ -69,7 +68,7 @@ def _has_jump(joints: np.ndarray, up_ax: int, up_sign: float,
     もっともらしい数字が出る。実際、サーブが写っていない参照動画で 173fps という
     無意味な推定が出た。先に「本当に跳んだか」を確かめる。
     """
-    feet = joints[:, [L_ANKLE, R_ANKLE, L_FOOT, R_FOOT]][..., up_ax] * up_sign
+    feet = joints[:, FOOT_IDS][..., up_ax] * up_sign
     lowest = feet.min(axis=1)
     standing = float(np.median(lowest))
     clearance = float(lowest.max() - standing)

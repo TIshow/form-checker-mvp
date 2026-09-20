@@ -35,17 +35,15 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from analysis.serve import (  # noqa: E402
-    L_ANKLE, L_FOOT, R_ANKLE, R_FOOT, ServeKinematics, detect_up_axis,
-)
-
-FOOT_IDS = [L_ANKLE, R_ANKLE, L_FOOT, R_FOOT]
+import analysis  # noqa: E402
+from core import detect_up_axis  # noqa: E402
+from core.skeleton import FOOT_IDS  # noqa: E402
 
 
 def measure(path: str, fps: float) -> dict:
     J = np.load(path)
-    k = ServeKinematics(J, fps)
-    ph = k.detect_phases()
+    d, k = analysis.kinematics_for(J, fps)
+    ph = d.detect_phases(k)
     lo, ct = ph["loading"], ph["contact"]
 
     ax, sg = detect_up_axis(J)
@@ -72,7 +70,7 @@ def measure(path: str, fps: float) -> dict:
     el = k.elbow_angle()
     tr = k.trunk_lean()
     return {
-        "frames": len(J), "fps": fps, "racket": k.racket_side,
+        "frames": len(J), "fps": fps, "racket": k.side,
         "loading": lo, "contact": ct, "drive_s": (ct - lo) / fps,
         "ground_m": ground,
         "jump_cm": clearance * 100,

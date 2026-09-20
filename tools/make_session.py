@@ -49,9 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import analysis  # noqa: E402
-from analysis.serve import (  # noqa: E402
-    FOOT_IDS, L_HAND, R_HAND, ServeKinematics, detect_up_axis,
-)
+
 from make_compare import PREFIXES, sanitize  # noqa: E402
 
 # 集計する指標。(表示名, 取り出し方, 単位, 小数点)
@@ -68,32 +66,19 @@ METRICS = [
 ]
 
 
-def extra(J: np.ndarray, fps: float) -> dict:
-    """analysis に入っていない指標をここで足す。
+def extra(m: dict, fps: float) -> dict:
+    """集計の表で使う値を、指標から取り出して丸める。
 
     ラケットドロップは手法比較で目視評価と順位一致した唯一の指標だった
-    （GVHMR 116° > TRAM 72° ≒ GEM-X 72°）。サーブの核心なので必ず載せる。
+    （GVHMR 116° > TRAM 72° ≒ GEM-X 72°）。以前はここで計算していたが、
+    `domains/tennis_serve.py` の正式な指標に昇格したので取り出すだけ。
     """
-    k = ServeKinematics(J, fps)
-    ph = k.detect_phases()
-    lo, ct = ph["loading"], ph["contact"]
-    ax, sg = detect_up_axis(J)
-    up = np.zeros(3)
-    up[ax] = sg
-
-    wr = k.idx("wrist")
-    hd = R_HAND if k.racket_side == "R" else L_HAND
-    v = J[:, hd] - J[:, wr]
-    v = v / np.linalg.norm(v, axis=1, keepdims=True)
-    ang = np.degrees(np.arccos(np.clip(v @ up, -1, 1)))
-
-    feet = (J[..., ax] * sg)[:, FOOT_IDS].min(axis=1)
-    ground = float(np.median(feet))
+    ph = m["phases"]
     return {
-        "racket_drop_deg": round(float(ang[lo:ct + 1].max()), 1),
-        "foot_clearance_cm": round(float(feet[lo:].max() - ground) * 100, 1),
-        "drive_s": round((ct - lo) / fps, 3),
-        "racket_side": k.racket_side,
+        "racket_drop_deg": round(m["racket_drop_deg"], 1),
+        "foot_clearance_cm": round(m["foot_clearance_m"] * 100, 1),
+        "drive_s": round((ph["contact"] - ph["loading"]) / fps, 3),
+        "racket_side": m["racket_side"],
     }
 
 
@@ -184,7 +169,7 @@ def load(recon_dir: Path, labels_csv: Path, fps: float) -> dict:
             continue
         J = np.load(f)
         res = analysis.analyze_json(J, fps)
-        x = extra(J, fps)
+        x = extra(res["metrics"], fps)
         serves.append({
             "serve": n, "result": result, "video": r.get("video", ""),
             "note": note, "n_frames": int(len(J)),

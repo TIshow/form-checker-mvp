@@ -8,11 +8,16 @@
 
 from __future__ import annotations
 
+import json
+import math
+
 import numpy as np
 import pytest
 
 import analysis
-from analysis import feedback as fb
+import domains
+from domains import base
+from domains import tennis_serve as fb
 from tests.synth import synth_serve
 
 
@@ -100,7 +105,177 @@ def test_chain_judged_at_high_fps():
 
 
 def test_min_fps_boundary_is_respected():
-    assert fb.CHAIN_MIN_FPS >= 60.0, "連鎖判定の下限fpsを下げると誤検知が復活する"
+    assert domains.get("tennis_serve").chain_min_fps >= 60.0, \
+        "連鎖判定の下限fpsを下げると誤検知が復活する"
+
+
+# --------------------------------------------------------------------------
+# ドメインの分離（issue 011）
+# --------------------------------------------------------------------------
+def test_every_domain_measures_without_crashing():
+    """合成サーブを全ドメインに通す。局面検出が例外を投げないこと。
+
+    動作としては正しくない（サーブをゴルフとして測る）が、**どのドメインも
+    同じ (F,24,3) を受けて JSON 化できる辞書を返す**という契約を守らせる。
+    """
+    joints, _ = synth_serve(fps=120.0)
+    for name in domains.names():
+        d, kin = analysis.kinematics_for(joints, 120.0, name)
+        m = d.measure(kin, d.detect_phases(kin))
+        json.dumps(m)                      # numpy が残っていれば例外
+        assert m["n_frames"] == joints.shape[0]
+        assert d.report(m, d.judge(m)), f"{name} のレポートが空"
+
+
+def test_unimplemented_domains_make_no_threshold_claims():
+    """閾値の出典が無いドメインは、独自の判定を出してはいけない。
+
+    テニスでは、出典を確認していない数値で**プロの技術を欠点と判定していた**。
+    新しい競技で同じことを繰り返さないための歯止め。
+
+    tier の文字列だけを見ても意味がない（判定を書いた本人が "A" と
+    名乗れてしまう）。**id で縛る。** 未実装ドメインが出してよいのは
+    `domains/base.py` が全競技共通で持つ連鎖の判定ただ1つで、
+    それ以外の id が出てきたら、そのドメインに独自ルールが足された証拠。
+    """
+    joints, _ = synth_serve(fps=120.0)
+    for name in domains.names():
+        if name == "tennis_serve":
+            continue
+        d, kin = analysis.kinematics_for(joints, 120.0, name)
+        m = d.measure(kin, d.detect_phases(kin))
+        found = d.judge(m)
+        assert {f["id"] for f in found} <= {"kinetic_chain_order"}, \
+            f"{name} が base.py 以外の判定を出している: {[f['id'] for f in found]}"
+        assert {f["tier"] for f in found} <= {"A"}, f"{name} に非TIER Aの判定がある"
+        assert type(d).judge is base.NotImplementedDomain.judge, \
+            f"{name} が judge を上書きしている。出典を確認したなら tier と共に記録すること"
+        assert d.evidence_needed, f"{name} に evidence_needed が無い"
+
+
+# ---------------------------------------------------------------------------
+# 他競技の局面検出（レビューで見つかった不具合の再発防止）
+# ---------------------------------------------------------------------------
+
+def _golf_swing(n=90, idle=0, finish_high=True):
+    """アドレス → トップ → インパクト → フィニッシュ の合成スイング。
+
+    `finish_high` はフィニッシュで手がトップより高く上がる、実際のゴルフで
+    普通に起きる形。これを入れないと下のバグを再現できない。
+    """
+    F = n + idle
+    J = np.zeros((F, 24, 3))
+    for j, h in {0: .95, 1: .90, 2: .90, 3: 1.05, 4: .50, 5: .50, 6: 1.15,
+                 7: .08, 8: .08, 9: 1.25, 10: .02, 11: .02, 12: 1.45,
+                 13: 1.42, 14: 1.42, 15: 1.65, 16: 1.40, 17: 1.40}.items():
+        J[:, j, 1] = h
+    J[:, [1, 4, 7, 10, 13, 16], 0] = -0.18
+    J[:, [2, 5, 8, 11, 14, 17], 0] = 0.18
+
+    t = np.clip((np.arange(F) - idle) / max(n - 1, 1), 0, 1)
+    top_t, imp_t = 0.35, 0.65
+    top_h, imp_h = 1.70, 0.78
+    fin_h = 2.00 if finish_high else 1.50
+    h = np.where(t <= top_t, 0.80 + (top_h - 0.80) * (t / top_t),
+        np.where(t <= imp_t, top_h - (top_h - imp_h) * ((t - top_t) / (imp_t - top_t)),
+                 imp_h + (fin_h - imp_h) * ((t - imp_t) / (1 - imp_t))))
+    h[:idle] = 0.80
+    for w, dx in ((20, -.10), (21, .10), (22, -.12), (23, .12)):
+        J[:, w, 1] = h
+        J[:, w, 0] = dx
+    # トップまでは左腕(リード)が伸び右肘が曲がる。フィニッシュでは入れ替わる
+    lead = t <= imp_t
+    J[:, 18, 1] = np.where(lead, (J[:, 16, 1] + J[:, 20, 1]) / 2,
+                           (J[:, 16, 1] + J[:, 20, 1]) / 2 + 0.12)
+    J[:, 19, 1] = np.where(lead, (J[:, 17, 1] + J[:, 21, 1]) / 2 + 0.12,
+                           (J[:, 17, 1] + J[:, 21, 1]) / 2)
+    J[:, 18, 0], J[:, 19, 0] = -0.14, 0.14
+    return J
+
+
+def test_golf_top_is_not_the_finish():
+    """フィニッシュで手が最も高く上がっても、トップを取り違えないこと。
+
+    クリップ全体の argmax で「トップ」を決めていたため、フィニッシュを拾って
+    トップ＝インパクト＝フィニッシュが同じフレームに潰れ、リード側の判定まで
+    裏返っていた（フィニッシュでは伸びている腕が左右逆になるため）。
+    """
+    m, _ = analysis.analyze(_golf_swing(finish_high=True), 60.0, "golf_swing")
+    ph = m["phases"]
+    assert ph["top"] < ph["impact"] < ph["finish"]
+    assert m["lead_side"] == "L", "右打ちのリード側は左。フィニッシュを拾うと右になる"
+
+
+def test_golf_tempo_ignores_idle_footage():
+    """構えている時間が長くてもテンポが変わらないこと。
+
+    バックスイングをフレーム0から測っていたため、前に立っているだけの映像が
+    そのまま tempo_ratio に乗っていた（4秒足すと 2.3 → 15.7）。
+    """
+    ratios = [analysis.analyze(_golf_swing(idle=k), 60.0, "golf_swing")[0]["tempo_ratio"]
+              for k in (0, 60, 240)]
+    assert max(ratios) - min(ratios) < 0.01, f"待機時間でテンポが動く: {ratios}"
+
+
+def test_golf_tempo_is_nan_when_the_swing_is_cut_off():
+    """スイングが入っていないクリップで、それらしい数字を出さないこと。"""
+    m, _ = analysis.analyze(_golf_swing()[:32], 60.0, "golf_swing")
+    assert math.isnan(m["tempo_ratio"])
+
+
+def _standing(offsets, tilt_deg=0.0):
+    """重心を与えた軌跡で動かす直立スケルトン。"""
+    F = len(offsets)
+    J = np.zeros((F, 24, 3))
+    for j, h in {0: .95, 1: .90, 2: .90, 3: 1.05, 4: .50, 5: .50, 6: 1.15,
+                 7: .08, 8: .08, 9: 1.25, 10: .02, 11: .02, 12: 1.45,
+                 13: 1.42, 14: 1.42, 15: 1.65, 18: 1.15, 19: 1.15,
+                 20: .92, 21: .92, 22: .86, 23: .86}.items():
+        J[:, j, 1] = h
+    J[:, [1, 4, 7, 10, 13, 18, 20, 22], 0] = -0.18
+    J[:, [2, 5, 8, 11, 14, 19, 21, 23], 0] = 0.18
+    a, half = np.radians(tilt_deg), 0.18
+    J[:, 16, 0], J[:, 16, 1] = -half * np.cos(a), 1.40 + half * np.sin(a)
+    J[:, 17, 0], J[:, 17, 1] = half * np.cos(a), 1.40 - half * np.sin(a)
+    return J + offsets[:, None, :]
+
+
+def test_opera_sway_measures_displacement_not_radius():
+    """円を描く揺れが「揺れていない」と出ないこと。
+
+    平均位置からの距離の**標準偏差**を取っていたため、半径が一定の動き
+    （＝円）では 0 になっていた。半径10cmで回っても 0.03cm と出ていた。
+    """
+    t = np.linspace(0, 4 * np.pi, 240)
+    r = 0.10
+    circle = np.stack([r * np.cos(t), np.zeros_like(t), r * np.sin(t)], 1)
+    line = np.stack([r * np.sin(t), np.zeros_like(t), np.zeros_like(t)], 1)
+
+    m_c, _ = analysis.analyze(_standing(circle), 60.0, "opera_posture")
+    m_l, _ = analysis.analyze(_standing(line), 60.0, "opera_posture")
+    m_s, _ = analysis.analyze(_standing(np.zeros((240, 3))), 60.0, "opera_posture")
+
+    assert abs(m_c["com_sway_cm"] - 10.0) < 0.1     # 円: 半径そのもの
+    assert abs(m_l["com_sway_cm"] - 7.07) < 0.1     # 直線: 振幅の 1/√2
+    assert m_s["com_sway_cm"] < 0.01                # 静止
+
+
+def test_opera_shoulder_tilt_does_not_saturate():
+    """肩の傾きが 45° で頭打ちにならないこと。
+
+    arctan2 の隣辺に肩間の3D距離（＝斜辺）を入れていたため、真の90°でも
+    45°と出ていた。
+    """
+    for want in (0, 20, 45, 60, 90):
+        m, _ = analysis.analyze(_standing(np.zeros((30, 3)), tilt_deg=want),
+                                60.0, "opera_posture")
+        assert abs(m["shoulder_tilt_mean_deg"] - want) < 0.5, \
+            f"{want}° が {m['shoulder_tilt_mean_deg']:.1f}° と出た"
+
+
+def test_unknown_domain_is_rejected_with_the_list():
+    with pytest.raises(KeyError, match="使えるのは"):
+        domains.get("tennis_smash")
 
 
 # --------------------------------------------------------------------------
@@ -202,7 +377,7 @@ def test_analyze_json_is_serializable():
 
 def test_com_derived_from_joints_is_anatomical():
     """関節から導出した重心が身長の約半分に来る（移動が忠実かの確認）。"""
-    from analysis.serve import compute_com, detect_up_axis
+    from core import compute_com, detect_up_axis
     joints, _ = synth_serve(fps=30.0)
     com = compute_com(joints)
     up_ax, up_sign = detect_up_axis(joints)
@@ -217,7 +392,7 @@ def test_com_derived_from_joints_is_anatomical():
 
 def test_soma_mapping_is_a_valid_permutation():
     """24関節ぶん、重複なく SOMA の範囲内を指していること。"""
-    from analysis.soma import SMPL24_FROM_SOMA78, SOMA78_JOINTS
+    from core.convert import SMPL24_FROM_SOMA78, SOMA78_JOINTS
     idx = [i for _, i in SMPL24_FROM_SOMA78]
     assert len(idx) == 24
     assert len(set(idx)) == 24, "同じ SOMA 関節を2度使っている"
@@ -231,7 +406,7 @@ def test_soma_mapping_absorbs_missing_root():
     それらしい数字が出てしまうので、取り違えに気付けない。
     """
     import numpy as np
-    from analysis.soma import to_smpl24
+    from core.convert import to_smpl24
     # 関節 i の座標を i にしておけば、どれを引いたかが値で分かる
     j78 = np.arange(78, dtype=float)[None, :, None].repeat(3, axis=2)
     j77 = j78[:, 1:, :] - 1.0          # Root を落とし、添字を1つ詰めた並び
@@ -241,7 +416,7 @@ def test_soma_mapping_absorbs_missing_root():
 def test_soma_mapping_rejects_unknown_joint_count():
     import numpy as np
     import pytest
-    from analysis.soma import to_smpl24
+    from core.convert import to_smpl24
     with pytest.raises(ValueError, match="SOMA の関節数"):
         to_smpl24(np.zeros((2, 24, 3)))
 
