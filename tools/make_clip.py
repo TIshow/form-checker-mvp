@@ -110,7 +110,7 @@ def build(joints_path: str, fps: float, domain: str, label: str,
           playback_fps: float | None = None, start: float = 0.0,
           smooth_to_fps: float | None = None, coords: str | None = None,
           end: float | None = None, level_from: str | None = None,
-          anchor: bool | None = None) -> dict:
+          anchor: bool | None = None, renders: list[str] | None = None) -> dict:
     J = np.load(joints_path)
     if end is not None:
         # 解析に使う範囲を末尾で切る（動画は切らない）。関節のフレーム i は
@@ -177,6 +177,17 @@ def build(joints_path: str, fps: float, domain: str, label: str,
         copy_video(vp, dest, max_width)
         res["video"] = dest.name   # clip.json と同じディレクトリ
         print(f"✅ {dest}  ({dest.stat().st_size / 1e6:.1f} MB)")
+    # 復元手法が自分で描いたレンダ動画（メッシュの重ね合わせ等）。
+    # 棒人間は関節だけなので、手法の「体」の推定を見るにはこちらが要る。
+    res["renders"] = []
+    for i, spec in enumerate(renders or []):
+        label, _, src = spec.partition("=")
+        if not src:
+            label, src = Path(spec).stem, spec
+        dest = out.parent / f"render_{i}.mp4"
+        copy_video(Path(src), dest, max_width)
+        res["renders"].append({"label": label, "file": dest.name})
+        print(f"✅ {dest}  ({dest.stat().st_size / 1e6:.1f} MB)  {label}")
     return res
 
 
@@ -198,6 +209,8 @@ def main() -> None:
     ap.add_argument("--level-from", default=None, metavar="開始:終了",
                     help="この区間（動画の秒）で直立している前提で水平を取る。"
                          "スマホ撮影のカメラの傾き（10〜15°）を較正する")
+    ap.add_argument("--render", action="append", metavar="ラベル=動画",
+                    help="手法が描いたレンダ動画を同梱して同期表示する（複数可）")
     ap.add_argument("--anchor", dest="anchor", action="store_true", default=None,
                     help="接地足を固定する（カメラ空間の復元では既定でオン）")
     ap.add_argument("--no-anchor", dest="anchor", action="store_false",
@@ -220,7 +233,7 @@ def main() -> None:
     res = build(args.joints, args.fps, args.domain,
                 args.label or d.label, args.video, out, args.max_width,
                 args.playback_fps, args.start, args.smooth_to_fps, args.coords, args.end,
-                args.level_from, args.anchor)
+                args.level_from, args.anchor, args.render)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(sanitize(res), ensure_ascii=False, allow_nan=False),

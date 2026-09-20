@@ -71,6 +71,12 @@
     <div class="meta" id="meta"></div>
   </div>
 
+  <div class="card" id="rendersCard" hidden>
+    <h2>復元手法が描いたレンダ</h2>
+    <div id="renders" class="row" style="align-items:flex-start"></div>
+    <p class="note">手法自身のメッシュ描画。棒人間は関節位置だけなので、手法が推定した「体」を見るにはこちら。スクラブに同期する。</p>
+  </div>
+
   <div class="card">
     <h2>計測値</h2>
     <table id="metrics"></table>
@@ -140,6 +146,21 @@ async function main() {
   } else {
     $("videoBox").parentElement.remove();
     $("stage").style.gridTemplateColumns = "minmax(0,1fr)";
+  }
+
+  // 手法のレンダ動画（あれば）。同じ時刻へシークする
+  const renderVideos = [];
+  if (clip.renders && clip.renders.length) {
+    $("rendersCard").hidden = false;
+    for (const r of clip.renders) {
+      const wrap = document.createElement("div");
+      wrap.style.flex = "1 1 280px"; wrap.style.minWidth = "0";
+      wrap.innerHTML = `<h4>${r.label}</h4>`;
+      const rv = document.createElement("video");
+      rv.src = base + r.file; rv.muted = true; rv.playsInline = true; rv.preload = "auto";
+      rv.style.width = "100%"; rv.style.borderRadius = "8px"; rv.style.background = "#080b0f";
+      wrap.appendChild(rv); $("renders").appendChild(wrap); renderVideos.push(rv);
+    }
   }
 
   const pane = createPane($("skelBox"), clip, 0x9ad0ff);
@@ -225,6 +246,8 @@ async function main() {
     // 動画は**再生fps**で時刻を決める（撮影fpsではない）。スロー映像では両者が違う
     if (video && video.readyState >= 1)
       video.currentTime = (clip.video_start_s || 0) + f / (clip.video_fps || clip.fps);
+    // レンダ動画は復元と同じフレーム列（切り出し後の動画から作られる）なので start は足さない
+    for (const rv of renderVideos) if (rv.readyState >= 1) rv.currentTime = f / (clip.video_fps || clip.fps);
     const here = clip.phase_list.filter(p => p.frame === f).map(p => p.label).join("　");
     $("meta").textContent = `frame ${f} / ${scrub.max}　${(f / clip.fps).toFixed(2)}s`
       + (here ? `　← ${here}` : "");

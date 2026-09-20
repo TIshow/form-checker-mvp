@@ -179,6 +179,10 @@ python tools/make_clip.py --name golf --domain golf_swing \
     --joints output_golf_s3/s3_joints.npy --fps 30 \
     --video videos/golf/golf_form1.mp4 --label "ゴルフスイング解析"
 # → http://127.0.0.1:8123/clip.html?clip=golf
+# 手法が描いたレンダ動画（メッシュ重ね合わせ等）を同期表示するには --render
+python tools/make_clip.py --name golf_gemx --domain golf_swing \
+    --joints output_golf_gemx/gx_joints.npy --fps 30 --video videos/golf/golf_form1.mp4 \
+    --render "GEM-X メッシュ=output_golf_gemx/temp_golf_1_incam.mp4" --render "世界座標=output_golf_gemx/temp_golf_2_global.mp4"
 # スマホ撮影はカメラが 10〜15° 傾く。録画の最初に直立する1秒があれば
 # --level-from 0:1 で水平を取れる（無いと前傾角がそのぶんずれる）
 ```
