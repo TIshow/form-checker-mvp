@@ -51,6 +51,12 @@ TRAM は置かない。原点から測っていたため、同じ動画で打点
 ジッタをこれで消したくなる。**それは判定そのものを壊す。**
 [issue 011](../docs/issues/011-commercial-architecture.md) を読むこと。
 
+## matplotlib に日本語を渡さない
+
+`plot.py` の `title` と局面名は **ASCII** で渡す。既定フォント
+(DejaVu Sans) に日本語のグリフが無く、豆腐（□□□）になる。
+CLI は日本語の `label` ではなく ASCII の `name` を渡している。
+
 ## `x_factor` は弱い指標
 
 体節が自分の軸まわりに回る成分は、関節**位置**にほとんど現れない。

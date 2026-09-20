@@ -30,6 +30,7 @@ TIER C を「欠点」として指摘してはいけない。テニスでは初�
 
 from __future__ import annotations
 
+import math
 from typing import Protocol, runtime_checkable
 
 import numpy as np
@@ -103,6 +104,8 @@ class Domain(Protocol):
     chain_min_fps: float
     #: measure() が返す主要指標のキー。比較画面がこの順で並べる。
     headline: tuple[str, ...]
+    #: 重心グラフに注釈する2つの局面。detect_phases のキー名。
+    plot_phases: tuple[str, str]
 
     def side(self, joints: np.ndarray) -> str:
         """利き側 "R"/"L" を決める。根拠は競技ごとに違う。"""
@@ -132,6 +135,8 @@ class NotImplementedDomain:
     label = "未実装"
     chain_min_fps = DEFAULT_CHAIN_MIN_FPS
     headline: tuple[str, ...] = ()
+    #: 重心グラフに注釈する2つの局面。空なら描かない。
+    plot_phases: tuple[str, str] | tuple = ()
     #: 判定を入れる前に何を確かめる必要があるか。report がそのまま表示する。
     evidence_needed: tuple[str, ...] = ()
 
@@ -156,6 +161,12 @@ class NotImplementedDomain:
         if self.evidence_needed:
             lines += ["", "── 判定を入れる前に確かめること ──"]
             lines += [f"  ・{e}" for e in self.evidence_needed]
+        # chain_min_fps が無限大＝そもそも連鎖を測らないドメイン（持続的な
+        # 動作）。撮り直しを促す警告を出す意味がないので黙っている。
+        if math.isfinite(self.chain_min_fps) and metrics["fps"] < self.chain_min_fps:
+            lines += ["", f"  ⚠️ {metrics['fps']:.0f}fps では 1フレーム="
+                      f"{1000 / metrics['fps']:.0f}ms。力の伝わる順序は判定していません"
+                      f"（{self.chain_min_fps:.0f}fps 以上が要ります）。"]
         lines += ["", rule, "  改善ポイント", rule]
         if not findings:
             lines.append("  判定ルールがまだありません（指標の表示のみ）。")

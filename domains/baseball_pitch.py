@@ -38,6 +38,15 @@ from domains.base import NotImplementedDomain
 #: 投球で連鎖の順序を論じるのに必要と見積もったフレームレート。**未検証**。
 PITCH_CHAIN_MIN_FPS = 240.0
 
+#: 踏み出し足が「接地した」とみなす床からの高さ [m]。**根拠のない暫定値**。
+#:
+#: 局面のすべてがこの1つの数字にぶら下がっている（接地フレームが
+#: ストライド長・股関節と肩の分離・リード膝の角度・連鎖の窓を決める）。
+#: それなのに出典が無い。実測では 0.01→0.10m で接地が 51フレーム（0.85秒）
+#: 動いた。接地は高さの閾値ではなく**足の速度が落ちる点**で決めるべきで、
+#: ここは実際の投球映像で決め直すまでの仮置き。
+FOOT_CONTACT_TOL_M = 0.03
+
 
 class BaseballPitch(NotImplementedDomain):
     name = "baseball_pitch"
@@ -45,9 +54,12 @@ class BaseballPitch(NotImplementedDomain):
     chain_min_fps = PITCH_CHAIN_MIN_FPS
     headline = ("stride_ratio", "hip_shoulder_separation_deg",
                 "lead_knee_at_release_deg", "trunk_lean_at_release_deg")
+    plot_phases = ("foot_contact", "release")
 
     evidence_needed = (
         "最大外旋(MER)を測る手段。上腕の軸回転は関節位置に出ない",
+        f"接地の判定（今は床から {FOOT_CONTACT_TOL_M * 100:.0f}cm という根拠のない閾値。"
+        "局面全体がこの1つの数字で決まる。足の速度で決めるべき）",
         "ハイスピード撮影（240fps以上）での実測。60fpsでは連鎖を判定できない",
         "リリース検出をボール追跡で置き換える（今は手首の最大速度という代用）",
         "ストライドで前方へ大きく移動するため、世界座標の並進精度の検証",
@@ -73,7 +85,7 @@ class BaseballPitch(NotImplementedDomain):
         after = lf[lift:]
         # 接地 = 足上げ以降で床の高さに戻る最初のところ
         ground = kin.ground()
-        touched = np.where(after <= ground + 0.03)[0]
+        touched = np.where(after <= ground + FOOT_CONTACT_TOL_M)[0]
         contact = lift + int(touched[0]) if len(touched) else lift
 
         wr = kin.idx("wrist")

@@ -17,6 +17,10 @@ def save_com_height_graph(metrics: dict, com: np.ndarray,
 
     phases は metrics["phases"] のキー名。競技によって名前が違う
     （サーブ: loading/contact、ゴルフ: top/impact）ので引数にしてある。
+    各ドメインの `plot_phases` がその競技の正しい組を持っている。
+
+    **title と局面名は ASCII で渡すこと。** matplotlib の既定フォント
+    (DejaVu Sans) に日本語のグリフが無く、日本語を渡すと豆腐（□□□）になる。
 
     以前「重心の折れ線を見ても意味が分からない」となった反省を踏まえ、
     生の曲線ではなく「どこが沈み込みでどこが打点か」を図中に明示する。
@@ -47,10 +51,12 @@ def save_com_height_graph(metrics: dict, com: np.ndarray,
                 xy=(pk / fps, h[pk]), xytext=(pk / fps + 0.5, h[pk] - 0.045),
                 arrowprops=dict(arrowstyle="->", lw=1.4), fontsize=10)
 
+    # 局面名は競技ごとに違うので、注釈文も競技固有の言葉を使わない。
+    # 符号は f-string の +.1f に任せる（"+-2.1" にならないように）。
     rise = (h[pk] - h[tr]) * 100
     span = h.max() - h.min()
     ax.text((tr + pk) / 2 / fps, h.min() - 0.02 * span,
-            f"leg drive  +{rise:.1f} cm in {(pk - tr) / fps:.2f}s",
+            f"{phases[0]} to {phases[1]}:  {rise:+.1f} cm in {(pk - tr) / fps:.2f}s",
             ha="center", fontsize=10, color="darkorange", weight="bold")
 
     # 上下に余白を足して注釈やタイトルの衝突を防ぐ

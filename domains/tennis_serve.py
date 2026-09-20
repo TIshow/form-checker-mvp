@@ -89,6 +89,7 @@ class TennisServe:
     chain_min_fps = DEFAULT_CHAIN_MIN_FPS
     headline = ("contact_height_m", "com_rise_m", "min_knee_deg_overall",
                 "elbow_at_contact_deg", "racket_drop_deg")
+    plot_phases = ("loading", "contact")
 
     # -- 利き側 ------------------------------------------------------------
     def side(self, joints: np.ndarray) -> str:

@@ -48,13 +48,19 @@ def main() -> None:
         out.mkdir(parents=True, exist_ok=True)
         (out / "report.txt").write_text(report, encoding="utf-8")
 
-        keys = [k for k in phases if isinstance(phases[k], int)]
-        if len(keys) >= 2:
+        # グラフに描く局面はドメインが決める（辞書の並び順に頼らない）。
+        # タイトルも ASCII の name を使う。label は日本語で、matplotlib の
+        # 既定フォントにグリフが無く豆腐になる。
+        pair = getattr(d, "plot_phases", ())
+        if len(pair) == 2 and all(k in phases for k in pair):
             from core.plot import save_com_height_graph
             save_com_height_graph(metrics, kin.com, kin.up_ax, kin.up_sign,
                                   str(out / "com_height.png"),
-                                  phases=(keys[0], keys[1]), title=d.label)
+                                  phases=tuple(pair), title=d.name)
             print(f"\n✅ 保存: {out}/report.txt, {out}/com_height.png")
+        else:
+            print(f"\n✅ 保存: {out}/report.txt"
+                  "（このドメインは重心グラフを描きません）")
 
 
 if __name__ == "__main__":
