@@ -155,6 +155,22 @@ python web/devserver.py   # → http://127.0.0.1:8123/clip.html
 
 測れなかった指標は **「測定できません」** と出る（NaN を 0 にしない）。
 
+複数のデモを並存させるときは `--name`。`web/data/<name>/` に出て、
+`clip.html?clip=<name>` で開く。
+
+**スロー映像**は撮影fpsと再生fpsが違う。指標は撮影fps（`--fps`）で、動画の
+同期は再生fps（`--playback-fps`）で扱う。切り出して復元した関節なら
+`--start` で元動画の開始秒を渡す。単一画像モデルの出力をスロー映像で使うときは
+`--smooth-to-fps 30` 前後で平滑化しないと、ジッタが速度を埋め尽くす
+（[core/filter.py](../core/filter.py)）。
+
+```bash
+python tools/make_clip.py --name batting --domain baseball_swing \
+    --joints output_bat_s3/s3_joints_3-9s.npy --fps 240 --playback-fps 24 --start 3.0 \
+    --smooth-to-fps 30 --video videos/baseball/batting_form.mp4 --label "バッティングフォーム解析"
+# → http://127.0.0.1:8123/clip.html?clip=batting
+```
+
 **視点の既定は「横から撮った映像」を前提**にしている。ビューアは撮影カメラの
 位置を知らないので、体の向き（腰の左→右）から横向きを作る。投手の背中側から
 撮った映像では「映像と同じ視点」ボタンは一致しない。計測値はカメラ位置に依存しない。

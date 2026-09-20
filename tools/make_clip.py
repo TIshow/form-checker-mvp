@@ -82,15 +82,25 @@ def copy_video(src: Path, dest: Path, max_width: int) -> None:
 
 
 def build(joints_path: str, fps: float, domain: str, label: str,
-          video: str | None, out: Path, max_width: int = 1280) -> dict:
+          video: str | None, out: Path, max_width: int = 1280,
+          playback_fps: float | None = None, start: float = 0.0,
+          smooth_to_fps: float | None = None, coords: str | None = None) -> dict:
     J = np.load(joints_path)
     d = domains.get(domain)
-    res = analysis.analyze_json(J, fps, domain)
+    res = analysis.analyze_json(J, fps, domain, smooth_to_fps)
     m = res["metrics"]
     ph = m.get("phases", {})
 
     res["label"] = label
     res["fps"] = fps
+    # 座標系。カメラ空間なら表示側が「撮影カメラの位置」に視点を置ける。
+    # 復元ファイルの接頭辞から推定し（s3_=SAM 3D Body はカメラ空間）、
+    # --coords で上書きできる。
+    res["coords"] = coords or ("camera" if Path(joints_path).name.startswith("s3_") else "world")
+    # スロー映像は「撮影fps」と「再生fps」が違う。指標は撮影fpsで計算し、
+    # 動画の同期は再生fpsで行う。混ぜると動画が10倍速で走るか止まるかする。
+    res["video_fps"] = playback_fps or fps
+    res["video_start_s"] = start
     res["source"] = joints_path
     res["domain_label"] = d.label
 
@@ -122,7 +132,7 @@ def build(joints_path: str, fps: float, domain: str, label: str,
         dest = out.parent / "clip_video.mp4"
         dest.parent.mkdir(parents=True, exist_ok=True)
         copy_video(vp, dest, max_width)
-        res["video"] = dest.name
+        res["video"] = dest.name   # clip.json と同じディレクトリ
         print(f"✅ {dest}  ({dest.stat().st_size / 1e6:.1f} MB)")
     return res
 
@@ -135,15 +145,28 @@ def main() -> None:
                     help=f"競技。{' / '.join(domains.names())}")
     ap.add_argument("--video", help="並べて表示する元動画（任意）")
     ap.add_argument("--label", default="", help="画面に出す名前")
+    ap.add_argument("--playback-fps", type=float, default=None,
+                    help="動画ファイルの再生fps（スロー映像で撮影fpsと違うとき）。既定は --fps と同じ")
+    ap.add_argument("--start", type=float, default=0.0,
+                    help="関節データが元動画の何秒目から始まるか（切り出して復元したとき）")
+    ap.add_argument("--coords", choices=("camera", "world"), default=None,
+                    help="関節の座標系。省略時は s3_ 接頭辞なら camera、それ以外は world")
+    ap.add_argument("--smooth-to-fps", type=float, default=None,
+                    help="関節列をこの fps 相当まで平滑化（単一画像モデルのスロー映像向け）")
     ap.add_argument("--max-width", type=int, default=1280,
                     help="元動画をこの幅まで縮めて置く（既定1280）")
-    ap.add_argument("--out", default="web/data/clip.json")
+    ap.add_argument("--name", default="",
+                    help="複数のクリップを並存させる。web/data/<name>/clip.json に出し、"
+                         "clip.html?clip=<name> で開く")
+    ap.add_argument("--out", default="", help="出力先（--name より優先）")
     args = ap.parse_args()
 
-    out = Path(args.out)
+    out = Path(args.out) if args.out else (
+        Path("web/data") / args.name / "clip.json" if args.name else Path("web/data/clip.json"))
     d = domains.get(args.domain)
     res = build(args.joints, args.fps, args.domain,
-                args.label or d.label, args.video, out, args.max_width)
+                args.label or d.label, args.video, out, args.max_width,
+                args.playback_fps, args.start, args.smooth_to_fps, args.coords)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(sanitize(res), ensure_ascii=False, allow_nan=False),
@@ -156,7 +179,8 @@ def main() -> None:
             or (isinstance(h["value"], float) and not math.isfinite(h["value"]))]
     if miss:
         print(f"   ℹ️ 測定できなかった指標: {', '.join(miss)}")
-    print("\n→ python web/devserver.py  →  http://127.0.0.1:8123/clip.html")
+    q = f"?clip={args.name}" if args.name else ""
+    print(f"\n→ python web/devserver.py  →  http://127.0.0.1:8123/clip.html{q}")
 
 
 if __name__ == "__main__":

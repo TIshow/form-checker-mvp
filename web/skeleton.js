@@ -59,6 +59,9 @@ export function toDisplay(clip) {
     p[0] = x * ca - z * sa;
     p[2] = x * sa + z * ca;
   }
+  // 方向ベクトルにも同じ変換をかけられるように残す（clip.html が
+  // 「撮影カメラはどこにいたか」を表示座標へ持ってくるのに使う）
+  clip._display = { ax, sg, hz, ca, sa };
 
   const lows = d.map(fr => Math.min(...FOOT_IDS.map(i => fr[i][1]))).sort((a, b) => a - b);
   const ground = lows[Math.floor(lows.length / 2)];
@@ -67,6 +70,16 @@ export function toDisplay(clip) {
   const cx = sx / d.length, cz = sz / d.length;
   for (const fr of d) for (const p of fr) { p[0] -= cx; p[1] -= ground; p[2] -= cz; }
   return d;
+}
+
+/**
+ * 元の座標系の方向ベクトル v を、toDisplay と同じ回転で表示座標へ移す。
+ * 平行移動は掛けない（方向なので）。toDisplay を先に呼んでおくこと。
+ */
+export function toDisplayDir(clip, v) {
+  const { ax, sg, hz, ca, sa } = clip._display;
+  const x0 = v[hz[0]] * sg, y0 = v[ax] * sg, z0 = v[hz[1]];
+  return [x0 * ca - z0 * sa, y0, x0 * sa + z0 * ca];
 }
 
 /**

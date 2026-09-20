@@ -132,16 +132,21 @@ class BaseballPitch(NotImplementedDomain):
         else:
             step = np.concatenate(
                 [[0.0], np.linalg.norm(np.diff(foot_h, axis=0), axis=-1)])
-        # **リリースから遡って探す。** 前向きに「最大の次に止まる点」を
-        # 探すと、足上げで脚を引き上げる動き（これも水平に速い）を拾って
-        # しまい、接地が 0.5秒早く出た。踏み出しは**リリース直前の最後の
-        # 前進**なので、後ろから見て最後に動いていたフレームの次が接地。
+        # 踏み出しの**最大前進のフレームから前向きに**探し、前進が最初に
+        # 閾値を割った点を接地とする。
+        #
+        # 「リリースから遡って最後に動いていた点」も試したが、打撃で破綻した。
+        # 接地後も踏み出し足は小さく動き続ける（かかとの着地、つま先の向き
+        # 直し。単一画像モデルではそこにジッタも乗る）ので、遡ると接地が
+        # インパクトまでずれ込む。最大前進から前へ辿れば、その後の小さな
+        # 動きは閾値の下で無視される。投球の実測（GVHMR f58 / SAM 3D Body f59）
+        # はこの方法でも変わらない。
         contact = lift
         if release - lift >= 2:
             seg = step[lift:release + 1]
-            moving = np.flatnonzero(seg > FOOT_PLANT_STEP_RATIO * seg.max())
-            if len(moving):
-                contact = min(lift + int(moving[-1]) + 1, release)
+            peak = int(np.argmax(seg))
+            below = np.flatnonzero(seg[peak:] < FOOT_PLANT_STEP_RATIO * seg[peak])
+            contact = min(lift + peak + int(below[0]), release) if len(below) else release
         return {"lift": lift, "foot_contact": min(contact, release),
                 "release": release}
 

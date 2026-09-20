@@ -521,6 +521,50 @@ def test_pitch_refuses_when_contact_and_release_are_implausible():
     assert np.isnan(bad["hip_shoulder_separation_deg"])
 
 
+def _swing(n=72, fps=24.0, stride_m=0.30):
+    """合成の打撃。右打ち＝左足が踏み出し足。接地の数フレーム後に手が最速。"""
+    J = np.zeros((n, 24, 3))
+    for j, h in {0: .95, 1: .90, 2: .90, 3: 1.05, 6: 1.15, 9: 1.25, 12: 1.45,
+                 13: 1.42, 14: 1.42, 15: 1.65, 16: 1.40, 17: 1.40, 18: 1.15,
+                 19: 1.15, 20: 1.05, 21: 1.05, 22: 1.00, 23: 1.00,
+                 5: .50, 8: .08, 11: .02}.items():
+        J[:, j, 1] = h
+    J[:, [1, 13, 16, 18, 20, 22, 4, 7, 10], 0] = -0.18
+    J[:, [2, 14, 17, 19, 21, 23, 5, 8, 11], 0] = 0.18
+    t = np.arange(n)
+    lift, plant = 20, 40
+    contact = plant + 5
+    u = np.clip((t - lift) / (plant - lift), 0, 1)
+    fwd = u ** 1.3 * stride_m
+    up = np.sin(np.pi * u) * 0.12
+    for j, base in ((4, .50), (7, .08), (10, .02)):
+        J[:, j, 1] = base + up
+        J[:, j, 2] = fwd
+    # 手は接地まで後ろに構え、contact で最速で前へ
+    sw = np.exp(-((t - contact) / 1.5) ** 2)
+    prog = np.cumsum(sw) / np.cumsum(sw)[-1]
+    for w in (20, 21, 22, 23):
+        J[:, w, 2] = -0.35 + prog * 1.2
+    return J, lift, plant, contact, fps
+
+
+def test_swing_lead_side_is_the_striding_foot():
+    J, *_ = _swing()
+    assert domains.get("baseball_swing").side(J) == "L"
+
+
+def test_swing_finds_plant_and_contact():
+    """接地＝前進が止まる点、インパクト＝手の最速。両方が正解の近くに来ること。"""
+    J, lift, plant, contact, fps = _swing()
+    m, _ = analysis.analyze(J, fps, "baseball_swing")
+    ph = m["phases"]
+    assert abs(ph["contact"] - contact) <= 1, ph
+    assert abs(ph["foot_plant"] - plant) <= 2, ph
+    assert ph["lift"] < ph["foot_plant"] < ph["contact"], ph
+    assert m["phases_separated"], m["phases_note"]
+    assert abs(m["stride_m"] - 0.30) < 0.06
+
+
 def test_soma_mapping_rejects_unknown_joint_count():
     import numpy as np
     import pytest

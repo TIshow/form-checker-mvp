@@ -139,6 +139,7 @@ domains/       競技ごとの局面・指標・判定
   tennis_serve.py   テニス サーブ — 実装済み
   golf_swing.py     ゴルフ       — 指標のみ（判定は出典待ち）
   baseball_pitch.py 野球 投球    — 指標のみ。実映像で局面検出を確認済み（連鎖判定は240fps以上）
+  baseball_swing.py 野球 打撃    — 指標のみ。接地・インパクト（手の最速で代用）
   opera_posture.py  オペラ 姿勢  — 指標のみ（音声側が未実装）
 analysis/      アプリ層。core と domains をつなぐ薄い層 + CLI
 web/           ブラウザで見る（配信は web/devserver.py）

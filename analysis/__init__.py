@@ -22,6 +22,7 @@ import numpy as np
 
 import domains
 from core import Kinematics
+from core.filter import temporal_smooth, window_for
 
 __all__ = [
     "analyze", "analyze_json", "analyze_from_files",
@@ -29,45 +30,53 @@ __all__ = [
 ]
 
 
-def kinematics_for(joints: np.ndarray, fps: float, domain: str | None = None):
+def kinematics_for(joints: np.ndarray, fps: float, domain: str | None = None,
+                   smooth_to_fps: float | None = None):
     """ドメインに利き側を決めさせて `Kinematics` を組み立てる。
 
     利き側の根拠は競技ごとに違う（サーブ=手首が高く上がる腕、
     ゴルフ=トップで伸びているリード腕、投球=速く動く腕）ため、
     ここでは決めずにドメインへ委ねる。
+
+    smooth_to_fps  単一画像モデルのジッタ対策。関節列を「この fps 相当」まで
+                   時間方向に平滑化してから計測する（`core/filter.py`）。
+                   通常速度の映像では窓が1になり何も変わらない。
     """
     d = domains.get(domain)
-    joints = np.asarray(joints)
+    joints = temporal_smooth(np.asarray(joints), window_for(fps, smooth_to_fps))
     return d, Kinematics(joints, fps, side=d.side(joints))
 
 
 def analyze(joints: np.ndarray, fps: float = 30.0,
-            domain: str | None = None) -> tuple[dict, list[dict]]:
+            domain: str | None = None,
+            smooth_to_fps: float | None = None) -> tuple[dict, list[dict]]:
     """関節データから指標とフィードバックを求める。
 
     joints  (F, 24, 3) SMPL 24関節の world座標 [m]
     他の骨格は `core.convert` で並べ替えてから渡す。
     """
-    d, kin = kinematics_for(joints, fps, domain)
+    d, kin = kinematics_for(joints, fps, domain, smooth_to_fps)
     metrics = d.measure(kin, d.detect_phases(kin))
     return metrics, d.judge(metrics)
 
 
 def analyze_json(joints: np.ndarray, fps: float = 30.0,
-                 domain: str | None = None) -> dict:
+                 domain: str | None = None,
+                 smooth_to_fps: float | None = None) -> dict:
     """Web が返す JSON 化可能な結果。指標・フィードバック・ビューア用の関節列。
 
     3D復元の外（サーバーのCPUやブラウザ）へ渡す境界。numpy を残さず、
     そのまま json.dumps できる形にする。
     """
-    d, kin = kinematics_for(joints, fps, domain)
+    d, kin = kinematics_for(joints, fps, domain, smooth_to_fps)
     metrics = d.measure(kin, d.detect_phases(kin))
     return {
         "domain": d.name,
         "metrics": metrics,
         "feedback": d.judge(metrics),
         "up_axis": [kin.up_ax, kin.up_sign],
-        "joints": np.asarray(joints).round(4).tolist(),  # (F,24,3) 3Dビューア用
+        "smoothed_window": window_for(fps, smooth_to_fps),
+        "joints": kin.J.round(4).tolist(),  # (F,24,3) 3Dビューア用（平滑化後）
     }
 
 

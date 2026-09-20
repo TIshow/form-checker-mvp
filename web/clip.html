@@ -85,7 +85,7 @@
 } }
 </script>
 <script type="module">
-import { createPane } from "./skeleton.js";
+import { createPane, toDisplayDir } from "./skeleton.js";
 
 const $ = id => document.getElementById(id);
 const hex = n => "#" + n.toString(16).padStart(6, "0");
@@ -105,18 +105,22 @@ function metricsTable(clip) {
 }
 
 async function main() {
+  // ?clip=<name> で web/data/<name>/clip.json を読む（複数のデモを並存させる）
+  const name = new URLSearchParams(location.search).get("clip") || "";
+  const base = name ? `data/${name}/` : "data/";
   let clip;
   try {
-    clip = await (await fetch("data/clip.json")).json();
+    clip = await (await fetch(base + "clip.json")).json();
   } catch (e) {
-    $("title").textContent = "data/clip.json を読めません";
+    $("title").textContent = `${base}clip.json を読めません`;
     $("sub").textContent = "tools/make_clip.py で生成してください。";
     return;
   }
 
   $("title").textContent = clip.label;
   $("sub").textContent =
-    `${clip.domain_label}　${clip.metrics.n_frames}フレーム @${clip.fps.toFixed(0)}fps`;
+    `${clip.domain_label}　${clip.metrics.n_frames}フレーム @${clip.fps.toFixed(0)}fps`
+    + ((clip.video_fps && clip.video_fps !== clip.fps) ? `（スロー映像・再生 ${clip.video_fps.toFixed(0)}fps）` : "");
   if (clip.note) { $("note").textContent = "⚠️ " + clip.note; $("note").hidden = false; }
   metricsTable(clip);
   $("judged").textContent = clip.judged
@@ -128,7 +132,7 @@ async function main() {
   let video = null;
   if (clip.video) {
     video = document.createElement("video");
-    video.src = "data/" + clip.video;
+    video.src = base + clip.video;
     video.muted = true;
     video.playsInline = true;
     video.preload = "auto";
@@ -167,8 +171,24 @@ async function main() {
     return { c, dist };
   })();
   function viewFromSide() {
-    // 目の高さ、ほんの少しだけ上から（床のグリッドが見える程度）
-    pane.camera.position.set(fit.c[0], fit.c[1] + fit.dist * 0.06, fit.c[2] - fit.dist);
+    // 撮影カメラの方向。カメラ空間で返す手法（SAM 3D Body）なら原点がカメラで、
+    // 被写体はその **−Z 側**にいる（OpenGL の慣習。OpenCV の +Z ではない——
+    // 実際に −Z で置いたら投球も打撃も左右が映像と逆になった）。
+    // 被写体から見たカメラは +Z。それを表示座標へ回せば、
+    // **推測なしで元映像と同じ向き**になる。
+    // 世界座標の手法（GVHMR）ではカメラ位置が分からないので、腰の向きから
+    // 横向きを作る従来の推測に落とす（撮り方によっては左右が逆になりうる）。
+    let dir;
+    if (clip.coords === "camera") {
+      const d = toDisplayDir(clip, [0, 0, 1]);
+      const n = Math.hypot(d[0], d[2]) || 1;           // 水平成分だけ使い、目の高さに置く
+      dir = [d[0] / n, 0, d[2] / n];
+    } else {
+      dir = [0, 0, -1];
+    }
+    pane.camera.position.set(fit.c[0] + dir[0] * fit.dist,
+                             fit.c[1] + fit.dist * 0.06,
+                             fit.c[2] + dir[2] * fit.dist);
     pane.controls.target.set(fit.c[0], fit.c[1], fit.c[2]);
     pane.controls.update();
   }
@@ -198,7 +218,9 @@ async function main() {
     pane.setFrame(f);
     // 動画は自前で再生せず、常にフレーム番号から時刻を決める。
     // video.play() に任せると 3D 側とじわじわずれる。
-    if (video && video.readyState >= 1) video.currentTime = f / clip.fps;
+    // 動画は**再生fps**で時刻を決める（撮影fpsではない）。スロー映像では両者が違う
+    if (video && video.readyState >= 1)
+      video.currentTime = (clip.video_start_s || 0) + f / (clip.video_fps || clip.fps);
     const here = clip.phase_list.filter(p => p.frame === f).map(p => p.label).join("　");
     $("meta").textContent = `frame ${f} / ${scrub.max}　${(f / clip.fps).toFixed(2)}s`
       + (here ? `　← ${here}` : "");

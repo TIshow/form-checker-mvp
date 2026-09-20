@@ -25,6 +25,8 @@ def main() -> None:
                    help="撮影フレームレート。連鎖の順序判定には60以上が必要")
     p.add_argument("--domain", default=domains.DEFAULT,
                    help=f"競技。{' / '.join(domains.names())}")
+    p.add_argument("--smooth-to-fps", type=float, default=None,
+                   help="関節列をこの fps 相当まで平滑化してから計測（単一画像モデルのスロー映像向け）")
     p.add_argument("--top", type=int, default=2, help="提示する指摘の件数")
     p.add_argument("--save", metavar="DIR", help="レポートとグラフの保存先")
     p.add_argument("--list", action="store_true", help="使えるドメインを表示して終了")
@@ -35,7 +37,8 @@ def main() -> None:
             print(f"  {n:<16} {domains.get(n).label}")
         return
 
-    d, kin = analysis.kinematics_for(np.load(args.joints), args.fps, args.domain)
+    d, kin = analysis.kinematics_for(np.load(args.joints), args.fps, args.domain,
+                                     args.smooth_to_fps)
     phases = d.detect_phases(kin)
     metrics = d.measure(kin, phases)
     feedback = d.judge(metrics)

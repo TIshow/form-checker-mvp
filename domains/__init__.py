@@ -12,6 +12,7 @@
   tennis_serve     実装済み。TIER A 2件 / TIER B 2件
   golf_swing       指標のみ。判定は出典を確認してから
   baseball_pitch   指標のみ。240fps 以上の撮影が前提
+  baseball_swing   指標のみ。打撃。接地とインパクト（手の最速で代用）
   opera_posture    指標のみ。音声側（core/audio.py）が未実装
 
 新しい競技を足すときは `NotImplementedDomain` を継承し、
@@ -22,6 +23,7 @@
 from __future__ import annotations
 
 from .baseball_pitch import BaseballPitch
+from .baseball_swing import BaseballSwing
 from .golf_swing import GolfSwing
 from .opera_posture import OperaPosture
 from .tennis_serve import TennisServe
@@ -30,11 +32,11 @@ from .tennis_serve import TennisServe
 DEFAULT = "tennis_serve"
 
 _REGISTRY = {d.name: d for d in (
-    TennisServe(), GolfSwing(), BaseballPitch(), OperaPosture(),
+    TennisServe(), GolfSwing(), BaseballPitch(), BaseballSwing(), OperaPosture(),
 )}
 
 __all__ = ["get", "names", "DEFAULT",
-           "TennisServe", "GolfSwing", "BaseballPitch", "OperaPosture"]
+           "TennisServe", "GolfSwing", "BaseballPitch", "BaseballSwing", "OperaPosture"]
 
 
 def get(name: str | None = None):
