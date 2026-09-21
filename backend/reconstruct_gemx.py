@@ -45,6 +45,17 @@ SOMA の姿勢を回帰するので、2D 関節が崩れれば 3D も崩れる�
 遮蔽の問題で、色順とは別。足の滑り（65cm）と左右の足の高さ差（最大 16cm）も
 変わらない。
 
+## 推論の分岐（`--ddim`）
+
+上流 DEMO.md の `--ddim`（50 steps、「遅いが高品質」）は固定版では**効かない**。
+ONNX デモが書く `model.pipeline.regression_only = False` を Pipeline は読まず、
+実際の分岐 `GEMDiffusion.forward_test` は `pipeline.denoiser3d.regression_only`
+を見る（issue 017、Codex の静的分析を実行で確認: denoiser の評価回数 1 → 100）。
+`--ddim` はデモ実行時にその属性を直接書き換える。公開重みは regression モードで
+学習されているので DDIM が効く保証は無かったが、ゴルフでは両手首の距離・
+リード膝・足の高さ差が揃って改善し、seed 依存は 0.7cm 以下だった
+（issue 017 の表）。ピーク手速度は 7% 下がる。既定は off（採用判断は 017）。
+
 ## 手順の出どころ
 
 GEM-X の Dockerfile をそのまま移した（INSTALL.md は Python 3.12 と書いているが、
@@ -173,20 +184,47 @@ def _probe_fps(path: str) -> float | None:
         return None
 
 
-def _patch_vitpose_color() -> None:
-    """ViTPose への入力の色反転を、コンテナ内のソースで1行だけ外す。
+_VITPOSE_FLIP = "crop = crop[..., ::-1].astype(np.float32) / 255.0  # BGR→RGB"
+_VITPOSE_NOFLIP = "crop = crop.astype(np.float32) / 255.0  # read_video_np は RGB。反転しない（patched）"
 
-    置換が 1箇所でなければ止める。上流が直したか変えたかのどちらかで、
-    黙って古い前提のまま走らせてはいけない。
+
+def _patch_vitpose_color(rgb: bool = True) -> None:
+    """ViTPose への入力の色反転を、コンテナ内のソースで1行だけ外す／戻す。
+
+    何度呼んでも同じ状態になる（暖まったコンテナが次の呼び出しで再利用される
+    ので、「1回だけ置換」だと2回目に壊れる）。上流の行が見つからなければ止める。
+    上流が直したか変えたかのどちらかで、黙って古い前提のまま走らせてはいけない。
     """
     src = Path(GEMX) / "gem/utils/vitpose_extractor.py"
     text = src.read_text()
-    old = "crop = crop[..., ::-1].astype(np.float32) / 255.0  # BGR→RGB"
-    new = "crop = crop.astype(np.float32) / 255.0  # read_video_np は RGB。反転しない（patched）"
-    if text.count(old) != 1:
-        raise RuntimeError(f"vitpose_extractor.py の色反転行が {text.count(old)} 箇所。上流が変わった")
-    src.write_text(text.replace(old, new))
-    print("[vitpose] 色反転を外しました（RGB のまま入力）")
+    want, other = (_VITPOSE_NOFLIP, _VITPOSE_FLIP) if rgb else (_VITPOSE_FLIP, _VITPOSE_NOFLIP)
+    if text.count(want) == 1 and other not in text:
+        return                                    # すでにその状態
+    if text.count(other) != 1:
+        raise RuntimeError(f"vitpose_extractor.py の色反転行が {text.count(other)} 箇所。上流が変わった")
+    src.write_text(text.replace(other, want))
+    print("[vitpose] 入力の色順:", "RGB のまま（反転を外した）" if rgb else "上流どおり（反転あり）")
+
+
+_DEMO_LOAD = "        model.load_pretrained_model(ckpt_path)\n"
+_DEMO_DDIM = (_DEMO_LOAD +
+              "        model.pipeline.denoiser3d.regression_only = False  # patched: DDIM (issue 017)\n")
+
+
+def _patch_demo_inference(ddim: bool) -> None:
+    """デモの推論を regression / DDIM に切り替える（コンテナ内のソースを1行）。
+
+    `_patch_vitpose_color` と同じく、何度呼んでも同じ状態になる。
+    """
+    src = Path(GEMX) / "scripts/demo/demo_soma.py"
+    text = src.read_text()
+    want, other = (_DEMO_DDIM, _DEMO_LOAD) if ddim else (_DEMO_LOAD, _DEMO_DDIM)
+    if want in text:
+        return
+    if text.count(other) != 1:
+        raise RuntimeError(f"demo_soma.py の重み読込行が {text.count(other)} 箇所。上流が変わった")
+    src.write_text(text.replace(other, want))
+    print("[inference]", "DDIM 50 steps" if ddim else "regression（上流どおり）")
 
 
 def _link_assets() -> None:
@@ -204,12 +242,14 @@ def _link_assets() -> None:
 @app.function(image=image, gpu="L4", volumes={ASSETS: vol}, timeout=3600)
 def reconstruct(video_bytes: bytes, name: str,
                 start: float | None = None, end: float | None = None,
-                static_cam: bool = True, vitpose_rgb: bool = True) -> dict:
+                static_cam: bool = True, vitpose_rgb: bool = True,
+                ddim: bool = False) -> dict:
     """動画1本を GEM-X で復元し、関節・姿勢・レンダ動画を返す。
 
     static_cam: True で `-s`（静止カメラ前提、VO を切る）。GVHMR と条件を
     揃えて比べたいときは True。カメラが動く素材では False も試す価値がある。
     vitpose_rgb: ViTPose に色を正しく（RGB のまま）渡す。冒頭の説明を参照。
+    ddim: regression 1 回ではなく DDIM 50 steps で推論する。冒頭の説明を参照。
     """
     import numpy as np
     import torch
@@ -217,8 +257,8 @@ def reconstruct(video_bytes: bytes, name: str,
     os_chdir = __import__("os").chdir
     os_chdir(GEMX)
     _link_assets()
-    if vitpose_rgb:
-        _patch_vitpose_color()
+    _patch_vitpose_color(vitpose_rgb)
+    _patch_demo_inference(ddim)
 
     Path("inputs").mkdir(exist_ok=True)
     import hashlib
@@ -227,6 +267,8 @@ def reconstruct(video_bytes: bytes, name: str,
     key_src = f"{source_hash}:{start}:{end}:{GEMX_COMMIT}:v2"
     if vitpose_rgb:
         key_src += ":vitpose_rgb"      # 既存のキャッシュと混ざらないように
+    if ddim:
+        key_src += ":ddim50"
     cache_key = hashlib.sha256(key_src.encode()).hexdigest()[:16]
     stem = f"{Path(name).stem}_{cache_key}"
     src = f"inputs/{stem}.mp4"
@@ -308,13 +350,14 @@ def reconstruct(video_bytes: bytes, name: str,
             "provenance": {"video_sha256": source_hash, "gemx_commit": GEMX_COMMIT,
                            "decoder": "official_soma_adapter", "units": "m",
                            "static_camera": static_cam, "start": start, "end": end,
-                           "vitpose_input": "rgb" if vitpose_rgb else "bgr_as_shipped"}}
+                           "vitpose_input": "rgb" if vitpose_rgb else "bgr_as_shipped",
+                           "inference": "ddim50" if ddim else "regression"}}
 
 
 @app.local_entrypoint()
 def main(video: str, out: str = "output_gemx",
          start: float | None = None, end: float | None = None,
-         moving_cam: bool = False, vitpose_rgb: bool = True):
+         moving_cam: bool = False, vitpose_rgb: bool = True, ddim: bool = False):
     """ローカルの動画を Modal で復元し、結果をローカルへ保存する。
 
     保存されるもの:
@@ -337,7 +380,7 @@ def main(video: str, out: str = "output_gemx",
     print(f"送信: {video_path} ({len(data) / 1e6:.1f} MB) → Modal GPU で復元中…")
 
     r = reconstruct.remote(data, video_path.name, start, end,
-                           not moving_cam, vitpose_rgb)
+                           not moving_cam, vitpose_rgb, ddim)
 
     d = Path(out)
     d.mkdir(parents=True, exist_ok=True)

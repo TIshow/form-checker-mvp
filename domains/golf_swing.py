@@ -127,18 +127,27 @@ class GolfSwing(NotImplementedDomain):
 
     @staticmethod
     def _takeaway(hand_speed: np.ndarray, top: int, frac: float = 0.10) -> int:
-        """手が動き始めるフレーム。トップの手前で、手の速さが最後に小さかった次。
+        """手が動き始めるフレーム。バックスイングの速さの頂点の手前で、
+        手の速さが最後に小さかった次。
 
         以前は手の高さの「最低位置にいた最後の1枚」で取っていたが、構えて待つ
         間の揺れ（数cm）に敏感で、基準（床／骨盤）を変えるだけで 82 → 47 と
         1秒以上ずれた。速さなら、構えの揺れ（ピークの数%）とバックスイング
         （20〜30%）の間に閾値を置ける。
+
+        **トップから遡ってはいけない。** トップで手は一瞬止まる（切り返し）ので、
+        「トップまでで最後に遅かった枚」がトップ自身になり、テイクバックが 0 に
+        飛ぶ。復元が滑らかなほど起きる（GEM-X の DDIM 出力で実際に起きた。
+        regression 出力は閾値を 0.05 m/s 上回っていただけで、たまたま通っていた）。
+        遡る起点はバックスイング中の速さの頂点にする。そこより手前で遅かった
+        最後の枚は、構えの終わりしかない。
         """
         if top <= 0:
             return 0
         thr = frac * float(hand_speed.max())
-        slow = np.flatnonzero(hand_speed[: top + 1] < thr)
-        return int(slow[-1]) + 1 if len(slow) and slow[-1] < top else 0
+        peak = int(np.argmax(hand_speed[: top + 1]))
+        slow = np.flatnonzero(hand_speed[:peak + 1] < thr)
+        return int(slow[-1]) + 1 if len(slow) and slow[-1] < peak else 0
 
     @staticmethod
     def _hand_speed(joints: np.ndarray, fps: float) -> np.ndarray:

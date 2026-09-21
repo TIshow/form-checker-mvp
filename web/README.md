@@ -188,6 +188,11 @@ python tools/make_clip.py --name golf_gemx_rgb --domain golf_swing \
     --joints output_golf_gemx_rgb/gx_joints.npy --fps 30 --video videos/golf/golf_form1.mp4 \
     --render "GEM-X メッシュ（RGB修正）=output_golf_gemx_rgb/temp_golf_e2970f6a42dd77a1_baked_1_incam.mp4" \
     --render "2D検出（RGB修正）=output_golf_gemx_rgb/0_kp2d77_overlay.mp4"
+# 推論方法の比較（issue 017）。D = DDIM + GEM-X の接地後処理、A = regression のみ
+python tools/make_clip.py --name golf_gemx_ddim --domain golf_swing \
+    --joints output_golf_gemx_exp/D_ddim_pp_s0/gx_joints.npy --fps 30 --video videos/golf/golf_form1.mp4 \
+    --render "GEM-X メッシュ（DDIM 50 + 接地後処理）=output_golf_gemx_exp/D_ddim_pp_s0/incam.mp4" \
+    --render "GEM-X メッシュ（regression・後処理なし）=output_golf_gemx_exp/A_reg_nopp/incam.mp4"
 # スマホ撮影はカメラが 10〜15° 傾く。録画の最初に直立する1秒があれば
 # --level-from 0:1 で水平を取れる（無いと前傾角がそのぶんずれる）
 ```

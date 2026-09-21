@@ -661,3 +661,23 @@ def test_holm_ignores_nan():
     adj = holm([0.01, float("nan"), 0.5])
     assert math.isnan(adj[1])
     assert adj[0] == 0.02                  # nan を除いた2件ぶんで補正
+
+
+def test_golf_takeaway_survives_pause_at_top():
+    """トップで手が止まっても、テイクバックはトップ自身に潰れない。
+
+    GEM-X の DDIM 出力で、切り返しの一瞬の停止が「トップまでで最後に遅かった
+    枚」になり、テイクバックが frame 0 に飛んだ。遡る起点をバックスイングの
+    速さの頂点にすれば、構えの終わり（f80）が返る。
+    """
+    from domains.golf_swing import GolfSwing
+    speed = np.concatenate([
+        np.full(80, 0.1),                 # 構え（揺れ）
+        np.linspace(0.8, 1.2, 20),        # バックスイング f80〜99（動き出しは閾値超え）
+        np.linspace(1.2, 0.05, 11),       # トップへ減速、f110 で止まる
+        np.linspace(0.05, 6.0, 8),        # ダウンスイング
+        np.linspace(6.0, 0.3, 30),
+    ])
+    top = 110
+    assert speed[top] < 0.1 * speed.max()          # 前提: トップは「遅い」
+    assert GolfSwing._takeaway(speed, top) == 80
