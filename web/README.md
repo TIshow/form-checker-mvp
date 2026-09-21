@@ -175,10 +175,6 @@ python tools/make_clip.py --name opera --domain opera_posture \
     --video videos/opera/opera_form.mp4 --label "発声姿勢の解析"
 # → http://127.0.0.1:8123/clip.html?clip=opera
 
-python tools/make_clip.py --name golf --domain golf_swing \
-    --joints output_golf_s3/s3_joints.npy --fps 30 \
-    --video videos/golf/golf_form1.mp4 --label "ゴルフスイング解析"
-# → http://127.0.0.1:8123/clip.html?clip=golf
 # 手法が描いたレンダ動画（メッシュ重ね合わせ等）を同期表示するには --render
 # GEM-X を素のまま（上流に手を入れない。表示の足留めもしない。issue 018）
 python tools/make_clip.py --name golf_gemx --domain golf_swing --no-anchor \

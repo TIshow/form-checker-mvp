@@ -143,3 +143,7 @@ X の2D追跡や骨格描画のデモも、未知の側面姿勢や世界座標�
 - [SAM estimator：cam_int、FOV分岐、ネイティブ出力](https://github.com/facebookresearch/sam-3d-body/blob/main/sam_3d_body/sam_3d_body_estimator.py)
 - [既定のカメラ内部パラメータ](https://github.com/facebookresearch/sam-3d-body/blob/main/sam_3d_body/data/utils/prepare_batch.py)
 - [GVHMR：Gravity-View Coordinates と動画処理](https://zju3dv.github.io/gvhmr/)
+
+## Closed（2026-09-21）
+
+ゴルフは GEM-X と GVHMR（参照）に絞った。`output_golf_s3`、`output_golf_diagnosis`、`web/data/golf` は削除。この doc は記録として残す。
