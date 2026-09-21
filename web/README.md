@@ -197,3 +197,12 @@ GVHMR より 1.5〜3倍大きく出る。人と比べるなら同じ手法どう
 
 見せる結果は **SAM 3D Body**（`s3_joints.npy`）で作ること。GVHMR は非商用なので
 社内の検証に留める（[backend/README.md](../backend/README.md)）。
+
+## 改善点（生成AI・根拠付き）を付ける
+
+```bash
+python tools/coach.py --clip golf_gvhmr   # → web/data/golf_gvhmr/coach.json（ANTHROPIC_API_KEY）
+```
+
+`clip.html` は同じフォルダに `coach.json` があれば「改善点」のカードを出す。
+根拠表と規律は `domains/<domain>_evidence.py` と issue 020。

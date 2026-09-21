@@ -18,6 +18,10 @@ refine = [
 dev = [
     "pytest>=7.4",
 ]
+# 生成AIに根拠付きの改善点を書かせる（tools/coach.py）。ANTHROPIC_API_KEY が要る
+coach = [
+    "anthropic>=0.40",
+]
 # レポートをグラフ化する場合のみ
 plot = [
     "matplotlib>=3.7",

@@ -701,3 +701,73 @@ def test_display_anchor_cannot_change_measurements():
     b = analysis.analyze_json(J, 30, "golf_swing", anchor=True)
     assert json.dumps(a["metrics"], sort_keys=True) == json.dumps(b["metrics"], sort_keys=True)
     assert a["measurement_joints"] == b["measurement_joints"]
+
+
+# ---------------------------------------------------------------------------
+# 生成AI コーチ: 根拠表の規律と、根拠 id の機械照合
+# ---------------------------------------------------------------------------
+
+def _golf_evidence():
+    from domains.golf_swing_evidence import EVIDENCE
+    return EVIDENCE
+
+
+def test_golf_evidence_entries_are_well_formed():
+    from domains import base
+    from domains.golf_swing import GolfSwing
+    known = set(GolfSwing.metric_labels) | {"kinetic_chain", "downswing_s", "backswing_s",
+             "x_factor_max_deg", "lead_knee_at_top_deg", "spine_tilt_address_deg", "grip_spread_mean_cm"}
+    ids = set()
+    for e in _golf_evidence():
+        assert e["id"] not in ids, f"id 重複 {e['id']}"; ids.add(e["id"])
+        assert e["tier"] in (base.TIER_A, base.TIER_B, base.TIER_C)
+        assert e["verified"] in ("本文確認", "未確認")
+        assert e["claim"] and e["source"]
+        for m in e["metrics"]:
+            assert m in known, f"{e['id']} が未知の指標 {m} を指している"
+        if e["tier"] in (base.TIER_A, base.TIER_B):
+            assert e["verified"] == "本文確認", f"{e['id']}: tier {e['tier']} は本文確認が要る"
+            assert "§" in e["source"] or "Abstract" in e["source"], f"{e['id']}: セクション番号まで書くこと"
+
+
+def test_coach_validate_keeps_only_verified_tier_ab_with_matching_metric():
+    from analysis import coach
+    ev = _golf_evidence()
+    raw = {"improvements": [
+        {"title": "ok", "metric": "downswing_s", "observed": "0.3", "evidence_id": "G-B1", "why": "", "advice": "", "confidence": "low"},
+        {"title": "tier C", "metric": "head_move_cm", "observed": "7", "evidence_id": "G-C2", "why": "", "advice": "", "confidence": "high"},
+        {"title": "未確認", "metric": "spine_tilt_change_deg", "observed": "1", "evidence_id": "G-C4", "why": "", "advice": "", "confidence": "high"},
+        {"title": "指標不一致", "metric": "head_move_cm", "observed": "7", "evidence_id": "G-B1", "why": "", "advice": "", "confidence": "high"},
+        {"title": "捏造 id", "metric": "tempo_ratio", "observed": "2.8", "evidence_id": "G-Z9", "why": "", "advice": "", "confidence": "high"},
+    ], "observations": [], "not_measured": [], "caveats": []}
+    out = coach.validate(raw, ev)
+    assert [i["title"] for i in out["improvements"]] == ["ok"]
+    assert out["demoted"] == 4 and len(out["observations"]) == 4
+
+
+def test_coach_run_with_fake_client_produces_saved_shape():
+    from analysis import coach
+    from tests.synth import synth_serve
+    import analysis
+    J, _ = synth_serve(fps=30)
+    m = analysis.analyze_json(J, 30, "golf_swing")["metrics"]
+    inp = coach.CoachInput("synthetic", "golf_swing", m, _golf_evidence(), "合成データ")
+    prompt = coach.build_prompt(inp)
+    assert "G-A1" in prompt and "tempo_ratio" in prompt and "根拠表" in prompt
+
+    class _Msg:  # anthropic の返り値の形だけ真似る
+        content = [type("B", (), {"text": '前置き {"improvements": [{"title":"t","metric":"downswing_s",'
+                                          '"observed":"x","evidence_id":"G-B1","why":"w","advice":"a","confidence":"low"}],'
+                                          '"observations": [], "not_measured": ["側屈"], "caveats": ["30fps"]} 後置き'})()]
+
+    class _Client:
+        class messages:
+            @staticmethod
+            def create(**kw):
+                assert kw["system"] == coach.SYSTEM
+                return _Msg()
+
+    out = coach.run(inp, client=_Client(), model="fake")
+    assert out["improvements"][0]["evidence_id"] == "G-B1"
+    assert out["not_measured"] == ["側屈"]
+    assert out["generated_by"] == "fake" and out["clip"] == "synthetic"

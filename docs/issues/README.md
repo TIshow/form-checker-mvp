@@ -44,3 +44,4 @@ docは消さない。完了後の価値は手順ではなく「なぜそうし�
 | [017](017-gemx-temporal-accuracy-plan.md) | GEM-Xの時系列精度：DDIM経路の検証と比較計画 | — | Closed（記録。018 でリセット） |
 | [018](018-golf-gemx-from-scratch.md) | ゴルフ × GEM-X を 0 から積み上げる（上流に手を入れない） | — | Step 2 削除・Step 1 が土台 |
 | [019](019-gemx-toward-gvhmr.md) | GEM-X を GVHMR の水準に近づける（入力修正 → 同期撮影 → 追加学習） | — | Proposed |
+| [020](020-evidence-coach.md) | 根拠付きの改善点を生成AIで出す（まずゴルフ） | — | 実装済み・根拠収集継続 |

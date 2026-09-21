@@ -37,6 +37,8 @@
   td.na { color:var(--mute); font-weight:400; font-size:14px; }
   .dir { color:var(--mute); font-size:12px; }
   .note { color:var(--mute); font-size:13px; margin-top:10px; }
+  .finding { border-left:3px solid var(--accent, #4a9); padding:6px 10px; margin:8px 0; }
+  #coach h3 { font-size:14px; margin:14px 0 6px; }
   .warn { background:#2a1f14; border:1px solid #7c5a1e; color:var(--warn);
           border-radius:8px; padding:10px 12px; font-size:13px; margin-bottom:14px; }
   @media (max-width:900px) { #stage { grid-template-columns:1fr; } }
@@ -82,6 +84,14 @@
     <table id="metrics"></table>
     <p class="note" id="judged"></p>
   </div>
+
+  <div class="card" id="coachCard" hidden>
+    <h2>改善点（生成AI・根拠付き）</h2>
+    <div id="coach"></div>
+    <p class="note">生成AIには、この画面の計測値と <code>domains/&lt;domain&gt;_evidence.py</code> の根拠表だけを渡している。
+      「改善点」と書けるのは根拠表の Tier A/B（力学的原理、または本文を確認した文献）に結びついたものだけで、
+      根拠 id は機械的に照合している。Tier C は「観察」として数値を述べるだけ。プロとの比較は含まない。</p>
+  </div>
 </main>
 
 <script type="importmap">
@@ -110,6 +120,27 @@ function metricsTable(clip) {
   $("metrics").innerHTML = rows.join("");
 }
 
+async function coachPanel(base) {
+  let c;
+  try { const r = await fetch(base + "coach.json"); if (!r.ok) return; c = await r.json(); } catch (e) { return; }
+  const esc = s => String(s ?? "").replace(/[&<>]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[ch]));
+  const imp = (c.improvements || []).map(i =>
+    `<div class="finding"><b>${esc(i.title)}</b> <span class="meta">［根拠 ${esc(i.evidence_id)}・確信 ${esc(i.confidence)}］</span>`
+    + `<div class="meta">${esc(i.metric)}: ${esc(i.observed)}</div>`
+    + `<div>${esc(i.why)}</div><div>→ ${esc(i.advice)}</div></div>`).join("")
+    || `<p class="meta">根拠表の Tier A/B に結びつく改善点はありません（根拠なしに欠点は書きません）。</p>`;
+  const obs = (c.observations || []).map(o =>
+    `<li><b>${esc(o.metric)}</b> ${esc(o.observed)} — ${esc(o.note)}</li>`).join("");
+  const nm = (c.not_measured || []).map(esc).map(s => `<li>${s}</li>`).join("");
+  const cv = (c.caveats || []).map(esc).map(s => `<li>${s}</li>`).join("");
+  $("coach").innerHTML = `<h3>改善点</h3>${imp}`
+    + (obs ? `<h3>観察（判定しない）</h3><ul>${obs}</ul>` : "")
+    + (nm ? `<h3>この計測では取れていないもの</h3><ul>${nm}</ul>` : "")
+    + (cv ? `<h3>限界</h3><ul>${cv}</ul>` : "")
+    + `<p class="meta">生成: ${esc(c.generated_by)} ${esc(c.generated_at)}${c.demoted ? `・根拠照合で ${c.demoted} 件を観察に降格` : ""}</p>`;
+  $("coachCard").hidden = false;
+}
+
 async function main() {
   // ?clip=<name> で web/data/<name>/clip.json を読む（複数のデモを並存させる）
   const name = new URLSearchParams(location.search).get("clip") || "";
@@ -129,6 +160,7 @@ async function main() {
     + ((clip.video_fps && clip.video_fps !== clip.fps) ? `（スロー映像・再生 ${clip.video_fps.toFixed(0)}fps）` : "");
   if (clip.note) { $("note").textContent = "⚠️ " + clip.note; $("note").hidden = false; }
   metricsTable(clip);
+  coachPanel(base);
   $("judged").textContent = clip.judged
     ? ""
     : "このドメインはまだ判定ルールを持っていません（計測値の表示のみ）。"
