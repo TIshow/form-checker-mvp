@@ -7,6 +7,7 @@
 | `reconstruct_sam3d.py` | **SAM 3D Body + MHR** | SAM License（商用可）+ Apache-2.0 | **出荷用。** 人に見せる結果はこれで作る |
 | `reconstruct.py` | GVHMR | **非商用** | **基準。** 検証・突き合わせにだけ使う。外に出さない |
 | `reconstruct_gemx.py` | GEM-X | Apache-2.0 + NVIDIA Open Model | 上流のデモを**手を入れずに**そのまま走らせる。ゴルフはここから 0 で積み上げ直す（issue 018）。SAM 3D Body のイメージと重みの供給元でもある |
+| `gemx_fit2d.py` | GEM-X | 同上 | Step 2（issue 018）: SOMA の関節回転を上流の 2D 検出に合わせ直す。画像面は合うが 3D は良くならなかった記録。上流は不変 |
 | `reconstruct_tram.py` | TRAM | MIT（SMPL 依存） | 評価記録 |
 
 ## 役割分担（2026-09-20）
