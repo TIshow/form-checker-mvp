@@ -71,6 +71,13 @@
     </div>
     <div class="row" id="phases" style="margin-top:10px"></div>
     <div class="meta" id="meta"></div>
+    <div id="stripWrap" hidden style="margin-top:12px">
+      <div class="row" style="justify-content:space-between">
+        <div class="meta" id="stripLegend"></div>
+        <label class="meta"><input type="checkbox" id="sound"> 音を出して再生（3D は動画に追従）</label>
+      </div>
+      <canvas id="strip" style="width:100%;height:150px;display:block;border-radius:8px;background:#0c1118;cursor:crosshair"></canvas>
+    </div>
   </div>
 
   <div class="card" id="rendersCard" hidden>
@@ -120,6 +127,69 @@ function metricsTable(clip) {
   $("metrics").innerHTML = rows.join("");
 }
 
+// 声量・響き・姿勢を同じ時間軸に描く帯。clip.audio が無ければ何もしない
+function buildStrip(clip, frames, seek) {
+  if (!clip.audio) return null;
+  const wrap = $("stripWrap"), cv = $("strip"), ctx = cv.getContext("2d");
+  wrap.hidden = false;
+  const A = clip.audio.series, S = clip.series || {};
+  const lanes = [
+    { key: "rms_db", vals: A.rms_db.values, lo: -50, hi: 0, color: "#5b8def", fill: true, label: A.rms_db.label + " [dB]" },
+    { key: "spr_db", vals: A.spr_db.values, lo: -35, hi: 5, color: "#f2b84b", label: A.spr_db.label + " [dB]" },
+    { key: "f0_hz", vals: A.f0_hz.values, lo: 80, hi: 900, color: "#8ee0a1", label: A.f0_hz.label + " [Hz]" },
+  ];
+  const postureKey = S.trunk_lean_deg ? "trunk_lean_deg" : (Object.keys(S)[0] || null);
+  if (postureKey) {
+    const v = S[postureKey].values.filter(Number.isFinite);
+    const c = v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0;
+    lanes.push({ key: postureKey, vals: S[postureKey].values, lo: c - 6, hi: c + 6, color: "#e88aa8",
+                 label: S[postureKey].label + ` [${S[postureKey].unit}]（平均±6）` });
+  }
+  const voiced = clip.audio.voiced;
+  $("stripLegend").innerHTML = lanes.map(l => `<span style="color:${l.color}">■</span> ${l.label}`).join("　");
+  function draw(f) {
+    const W = cv.clientWidth, H = 150;
+    if (cv.width !== W * devicePixelRatio) { cv.width = W * devicePixelRatio; cv.height = H * devicePixelRatio; }
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const laneH = H / lanes.length, x = i => (i + 0.5) / frames * W;
+    // 有声区間を薄く塗る
+    ctx.fillStyle = "rgba(255,255,255,0.05)";
+    for (let i = 0; i < frames; i++) if (voiced[i]) ctx.fillRect(i / frames * W, 0, W / frames + 0.5, H);
+    lanes.forEach((l, k) => {
+      const y0 = k * laneH, y = v => y0 + laneH - 3 - (Math.max(l.lo, Math.min(l.hi, v)) - l.lo) / (l.hi - l.lo) * (laneH - 6);
+      ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.beginPath(); ctx.moveTo(0, y0 + laneH); ctx.lineTo(W, y0 + laneH); ctx.stroke();
+      ctx.strokeStyle = l.color; ctx.fillStyle = l.color + "55"; ctx.lineWidth = 1.5;
+      let open = false;
+      ctx.beginPath();
+      for (let i = 0; i < frames; i++) {
+        const v = l.vals[i];
+        if (v === null || v === undefined || !Number.isFinite(v)) { open = false; continue; }
+        if (!open) { ctx.moveTo(x(i), y(v)); open = true; } else ctx.lineTo(x(i), y(v));
+      }
+      ctx.stroke();
+      if (l.fill) { ctx.lineTo(W, y0 + laneH); ctx.lineTo(0, y0 + laneH); ctx.closePath(); ctx.fill(); }
+      const v = l.vals[f];
+      ctx.fillStyle = l.color; ctx.font = "11px system-ui";
+      ctx.fillText(`${l.label}: ${v === null || v === undefined ? "—" : (+v).toFixed(1)}`, 6, y0 + 12);
+    });
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x(f), 0); ctx.lineTo(x(f), H); ctx.stroke();
+  }
+  cv.onclick = e => seek(Math.floor((e.offsetX / cv.clientWidth) * frames));
+  return { draw };
+}
+
+function audioSummary(clip) {
+  if (!clip.audio) return;
+  const rows = clip.audio.summary.map(h => {
+    const na = h.value === null || h.value === undefined;
+    const v = na ? "測定できません" : `${(+h.value).toFixed(h.digits)}${h.unit ? " " + h.unit : ""}`;
+    return `<tr><th>🎤 ${h.label}</th><td class="${na ? "na" : "val"}">${v}</td><td class="dir">${h.note || ""}</td></tr>`;
+  });
+  $("metrics").insertAdjacentHTML("beforeend", rows.join(""));
+  $("judged").insertAdjacentText("beforeend", "　音声は同一録音内の相対値。帯域の出典は未確認で、良し悪しは判定しない（core/audio.py）。");
+}
+
 async function coachPanel(base) {
   let c;
   try { const r = await fetch(base + "coach.json"); if (!r.ok) return; c = await r.json(); } catch (e) { return; }
@@ -160,6 +230,7 @@ async function main() {
     + ((clip.video_fps && clip.video_fps !== clip.fps) ? `（スロー映像・再生 ${clip.video_fps.toFixed(0)}fps）` : "");
   if (clip.note) { $("note").textContent = "⚠️ " + clip.note; $("note").hidden = false; }
   metricsTable(clip);
+  audioSummary(clip);
   coachPanel(base);
   $("judged").textContent = clip.judged
     ? ""
@@ -267,25 +338,37 @@ async function main() {
   scrub.max = String(pane.frames - 1);
   let f = 0, playing = false;
   let speed = parseFloat($("speed").value);
-  $("speed").onchange = () => { speed = parseFloat($("speed").value); };
+  $("speed").onchange = () => { speed = parseFloat($("speed").value); if (video) video.playbackRate = speed; };
 
-  function apply(v) {
+  // 音声の帯（issue 013）。声量・響き・姿勢の系列を同じ時間軸に描き、再生位置を重ねる
+  const strip = buildStrip(clip, pane.frames, v => { playing = false; stopVideo(); play.textContent = "▶ 再生"; apply(v); });
+  const sound = $("sound");
+  function stopVideo() { if (video && !video.paused) video.pause(); }
+
+  function apply(v, fromVideo = false) {
     f = Math.max(0, Math.min(pane.frames - 1, Math.round(v)));
     scrub.value = String(f);
     pane.setFrame(f);
     // 動画は自前で再生せず、常にフレーム番号から時刻を決める。
     // video.play() に任せると 3D 側とじわじわずれる。
     // 動画は**再生fps**で時刻を決める（撮影fpsではない）。スロー映像では両者が違う
-    if (video && video.readyState >= 1)
+    // 例外: 「音を出して再生」のときは動画が主で、3D が動画の時刻に追従する（fromVideo）
+    if (video && video.readyState >= 1 && !fromVideo)
       video.currentTime = (clip.video_start_s || 0) + f / (clip.video_fps || clip.fps);
+    if (strip) strip.draw(f);
     // レンダ動画は復元と同じフレーム列（切り出し後の動画から作られる）なので start は足さない
     for (const rv of renderVideos) if (rv.readyState >= 1) rv.currentTime = f / (clip.video_fps || clip.fps);
     const here = clip.phase_list.filter(p => p.frame === f).map(p => p.label).join("　");
     $("meta").textContent = `frame ${f} / ${scrub.max}　${(f / clip.fps).toFixed(2)}s`
       + (here ? `　← ${here}` : "");
   }
-  scrub.oninput = () => { playing = false; play.textContent = "▶ 再生"; apply(scrub.value); };
-  play.onclick = () => { playing = !playing; play.textContent = playing ? "⏸ 停止" : "▶ 再生"; };
+  scrub.oninput = () => { playing = false; stopVideo(); play.textContent = "▶ 再生"; apply(scrub.value); };
+  play.onclick = () => {
+    playing = !playing; play.textContent = playing ? "⏸ 停止" : "▶ 再生";
+    if (video && sound && sound.checked) {
+      if (playing) { video.muted = false; video.playbackRate = speed; video.play(); } else stopVideo();
+    }
+  };
 
   if (video) video.addEventListener("loadeddata", () => apply(f), { once: true });
   apply(0);
@@ -293,7 +376,12 @@ async function main() {
   let prev = 0, acc = 0;
   function loop(now) {
     const dt = Math.min((now - prev) / 1000, 0.1); prev = now;
-    if (playing) {
+    if (playing && video && sound && sound.checked && !video.paused) {
+      // 動画が主。動画の時刻からフレームを引く（音と口の動きがずれない）
+      const vf = Math.round((video.currentTime - (clip.video_start_s || 0)) * (clip.video_fps || clip.fps));
+      if (vf !== f) apply(vf, true);
+      if (video.ended || vf >= pane.frames - 1) { playing = false; stopVideo(); play.textContent = "▶ 再生"; }
+    } else if (playing) {
       acc += dt * clip.fps * speed;
       if (acc >= 1) { const s = Math.floor(acc); acc -= s; apply((f + s) % pane.frames); }
     }

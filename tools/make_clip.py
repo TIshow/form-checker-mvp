@@ -110,7 +110,8 @@ def build(joints_path: str, fps: float, domain: str, label: str,
           playback_fps: float | None = None, start: float = 0.0,
           smooth_to_fps: float | None = None, coords: str | None = None,
           end: float | None = None, level_from: str | None = None,
-          anchor: bool | None = None, renders: list[str] | None = None) -> dict:
+          anchor: bool | None = None, renders: list[str] | None = None,
+          audio: bool | None = None, f0_range: str | None = None) -> dict:
     J = np.load(joints_path)
     if end is not None:
         # 解析に使う範囲を末尾で切る（動画は切らない）。関節のフレーム i は
@@ -170,6 +171,39 @@ def build(joints_path: str, fps: float, domain: str, label: str,
     res["note"] = m.get("phases_note", "")
     res["judged"] = bool(res.get("feedback"))
 
+    # 毎フレームの姿勢系列（ドメインが series() を持つとき）。音声と同じ時間軸に並べる
+    if hasattr(d, "series"):
+        _, kin = analysis.kinematics_for(J, fps, domain, smooth_to_fps, level_window, False)
+        labels = getattr(d, "series_labels", {})
+        res["series"] = {k: {"label": labels.get(k, (k, "", 1, ""))[0],
+                             "unit": labels.get(k, (k, "", 1, ""))[1],
+                             "digits": labels.get(k, (k, "", 1, ""))[2],
+                             "values": np.asarray(v, dtype=float).round(3).tolist()}
+                         for k, v in d.series(kin).items()}
+
+    # 音声（issue 013）。既定はオペラだけ。スロー映像は時間軸が合わないので付けない
+    want_audio = (domain == "opera_posture") if audio is None else audio
+    if want_audio and video and (playback_fps or fps) == fps:
+        from core import audio as audio_mod
+        n = int(m["n_frames"])
+        fr = tuple(float(v) for v in f0_range.split(":")) if f0_range else audio_mod.F0_RANGE
+        a = audio_mod.analyze(video, fps, n, start, f0_range=fr)
+        res["audio"] = {
+            "sr": a["sr"], "formant_band_hz": a["formant_band_hz"], "f0_range_hz": a["f0_range_hz"],
+            "note": a["note"] + f"。F0 の探索範囲 {fr[0]:.0f}〜{fr[1]:.0f} Hz",
+            "series": {k: {"label": audio_mod.SERIES_LABELS[k][0], "unit": audio_mod.SERIES_LABELS[k][1],
+                           "digits": audio_mod.SERIES_LABELS[k][2], "note": audio_mod.SERIES_LABELS[k][3],
+                           "values": np.asarray(v, dtype=float).round(2).tolist()}
+                       for k, v in a["series"].items()},
+            "voiced": [bool(x) for x in a["voiced"]],
+            "summary": [{"key": k, "label": audio_mod.SUMMARY_LABELS[k][0], "unit": audio_mod.SUMMARY_LABELS[k][1],
+                         "digits": audio_mod.SUMMARY_LABELS[k][2], "note": audio_mod.SUMMARY_LABELS[k][3],
+                         "value": a["summary"].get(k)} for k in audio_mod.SUMMARY_LABELS],
+        }
+        sm = a["summary"]
+        print(f"   音声: 有声 {sm['voiced_fraction'] * 100:.0f}%  SPR {sm['spr_mean_db']}  "
+              f"F0 {sm['f0_mean_hz']}  ビブラート {sm['vibrato_rate_hz']}")
+
     if video:
         vp = Path(video)
         dest = out.parent / "clip_video.mp4"
@@ -215,6 +249,11 @@ def main() -> None:
                     help="接地足を固定する（カメラ空間の復元では既定でオン）")
     ap.add_argument("--no-anchor", dest="anchor", action="store_false",
                     help="接地足の固定をしない")
+    ap.add_argument("--audio", dest="audio", action="store_true", default=None,
+                    help="動画の音声も解析して同梱する（オペラは既定 on）")
+    ap.add_argument("--no-audio", dest="audio", action="store_false")
+    ap.add_argument("--f0-range", default=None, metavar="低:高",
+                    help="F0 を探す範囲 [Hz]。伴奏入りなら歌手の声域に絞る（例 300:1100）")
     ap.add_argument("--coords", choices=("camera", "world"), default=None,
                     help="関節の座標系。省略時は s3_ 接頭辞なら camera、それ以外は world")
     ap.add_argument("--smooth-to-fps", type=float, default=None,
@@ -233,7 +272,7 @@ def main() -> None:
     res = build(args.joints, args.fps, args.domain,
                 args.label or d.label, args.video, out, args.max_width,
                 args.playback_fps, args.start, args.smooth_to_fps, args.coords, args.end,
-                args.level_from, args.anchor, args.render)
+                args.level_from, args.anchor, args.render, args.audio, args.f0_range)
 
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(sanitize(res), ensure_ascii=False, allow_nan=False),

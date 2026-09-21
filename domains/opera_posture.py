@@ -76,9 +76,17 @@ class OperaPosture(NotImplementedDomain):
         """局面は無い。解析する区間の端だけを返す。"""
         return {"start": 0, "end": max(kin.F - 1, 0)}
 
-    def measure(self, kin: Kinematics, phases: dict[str, int]) -> dict:
-        lo, hi = phases["start"], phases["end"] + 1
-        J = kin.J[lo:hi]
+    #: 毎フレームの系列として表示に渡すもの（音声と同じ時間軸で並べる。issue 013）
+    series_labels = {
+        "head_forward_cm": ("頭部の前後位置", "cm", 1, "肩の中点から"),
+        "trunk_lean_deg": ("体幹の傾き", "°", 1, "鉛直から"),
+        "shoulder_tilt_deg": ("肩の左右差", "°", 1, ""),
+        "trunk_length_cm": ("体幹長", "cm", 1, "骨盤→首"),
+    }
+
+    def series(self, kin: Kinematics) -> dict[str, np.ndarray]:
+        """毎フレームの姿勢量。`measure` の平均・ばらつきはこれから取る。"""
+        J = kin.J
         up_ax = kin.up_ax
 
         # 頭部前方位: 頭が肩の中点より前後にどれだけ出ているか（水平距離）
@@ -86,8 +94,6 @@ class OperaPosture(NotImplementedDomain):
         head_off = J[:, HEAD] - sh_mid
         head_off[:, up_ax] = 0.0
         head_fwd = np.linalg.norm(head_off, axis=-1)
-
-        trunk = kin.trunk_lean()[lo:hi]
 
         # 体幹の長さ（骨盤→首）。胸郭の挙上の粗い代用にしかならない
         trunk_len = np.linalg.norm(J[:, NECK] - J[:, PELVIS], axis=-1)
@@ -99,6 +105,18 @@ class OperaPosture(NotImplementedDomain):
         sh_vec = J[:, L_SHOULDER] - J[:, R_SHOULDER]
         sh_horiz = np.linalg.norm(np.delete(sh_vec, up_ax, axis=-1), axis=-1)
         sh_tilt = np.degrees(np.arctan2(dh, sh_horiz + 1e-9))
+        return {"head_forward_cm": head_fwd * 100, "trunk_lean_deg": kin.trunk_lean(),
+                "shoulder_tilt_deg": sh_tilt, "trunk_length_cm": trunk_len * 100}
+
+    def measure(self, kin: Kinematics, phases: dict[str, int]) -> dict:
+        lo, hi = phases["start"], phases["end"] + 1
+        J = kin.J[lo:hi]
+        up_ax = kin.up_ax
+        ser = self.series(kin)
+        head_fwd = ser["head_forward_cm"][lo:hi] / 100
+        trunk = ser["trunk_lean_deg"][lo:hi]
+        trunk_len = ser["trunk_length_cm"][lo:hi] / 100
+        sh_tilt = ser["shoulder_tilt_deg"][lo:hi]
 
         # 重心の水平方向の揺れ。**平均位置からの距離の RMS** を使う。
         #

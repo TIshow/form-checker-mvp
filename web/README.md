@@ -172,7 +172,8 @@ python tools/make_clip.py --name batting --domain baseball_swing \
 
 python tools/make_clip.py --name opera --domain opera_posture \
     --joints output_opera_s3/s3_joints.npy --fps 30 --smooth-to-fps 10 \
-    --video videos/opera/opera_form.mp4 --label "発声姿勢の解析"
+    --video videos/opera/opera_form.mp4 --label "発声姿勢の解析" \
+    --f0-range 300:1100        # 伴奏入りなので F0 は歌手の声域に絞る（issue 013）
 # → http://127.0.0.1:8123/clip.html?clip=opera
 # GVHMR（非商用・確認用）と並べる
 python tools/make_clip.py --name opera_gvhmr --domain opera_posture --no-anchor \
@@ -180,6 +181,7 @@ python tools/make_clip.py --name opera_gvhmr --domain opera_posture --no-anchor 
     --video videos/opera/opera_form.mp4 --label "発声姿勢の解析（GVHMR・確認用）" \
     --render "GVHMR メッシュ=output_opera/render_1_incam.mp4" --render "世界座標=output_opera/render_2_global.mp4"
 # → http://127.0.0.1:8123/clip.html?clip=opera_gvhmr
+# オペラは既定で音声（声量・SPR・F0）を同梱し、スクラブの下に帯で描く。--no-audio で外せる
 
 # 手法が描いたレンダ動画（メッシュ重ね合わせ等）を同期表示するには --render
 # GEM-X を素のまま（上流に手を入れない。表示の足留めもしない。issue 018）
