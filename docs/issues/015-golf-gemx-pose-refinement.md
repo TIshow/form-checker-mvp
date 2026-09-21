@@ -1,6 +1,6 @@
 # ゴルフのGEM-X精度：同一フレーム診断と改善実験
 
-Status: Diagnosis / Proposal（A と C の最小実験は実施済み。下の「実験結果」）
+Status: Rejected experiment（公式経路統一は維持。再投影補正は不採用。[追加診断016](016-golf-refinement-rejection.md)）
 調査日: 2026-09-21。モデル再推論・再学習は未実施。
 
 ## 結論
@@ -131,10 +131,12 @@ global_scale として分離」は公式の解釈と同じだった。`core/gemx
 グリップ拘束は未実装。実装しても手首を寄せるだけで肘・肩は戻らない、という
 [011 §7d](011-commercial-architecture.md) の懸念は変わらない。
 
-**結論の更新:** GEM-X の腕はモデルの出力段階で崩れており、後処理では直らない。
-ゴルフの現実的な線は、[011](011-commercial-architecture.md) のとおり
-**SAM 3D Body を横から撮る**。この補正は `production_validated: false` のまま、
-実験の記録として残す。確認画面: `web/golf-review.html?run=golf_accuracy`。
+**結論の更新:** この再投影補正は不採用。「後処理全般で直せない」「SAMを横から撮れば
+解決する」とまでは、この実験から結論できない。追加調査でViTPoseへのRGB/BGR入力の
+不整合と、色順変更によるトップ付近の2D検出の改善を確認した（[016](016-golf-refinement-rejection.md)）。
+まず入力を修正してGEM-Xを再評価し、床・カメラ・接触の検証を分ける。
+`production_validated: false`、`adoption_status: rejected` として実験記録を残す。
+確認画面: `web/golf-review.html?run=golf_accuracy`。
 
 ## 次の最小実験
 

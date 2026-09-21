@@ -23,6 +23,28 @@ commercially usable"）、人体モデルは NVIDIA 独自の SOMA で、SMPL �
   返さなかった。跳躍がどの段で失われるかを直接比べられる（issue #8 の案D）。
 - 手と顔も入っている。ラケット周りに使えるかは別途評価（issue #6）。
 
+## ViTPose に渡す色順（`--vitpose-rgb`）
+
+固定版 3299255 のデモは、`read_video_np`（RGB を返す）の配列をそのまま
+`vitpose_extractor.get_batch` に渡す。ところが `get_batch` は BGR を想定して
+`crop[..., ::-1]` で反転してから ImageNet の RGB 平均・分散で正規化する。
+つまり **ViTPose だけが色を逆にした画像を見ている**（YOLOX は RGB→BGR に
+直してから渡し、SAM 3D Body は RGB のまま。壊れているのは 2D 関節の枝だけ）。
+
+GEM-X 本体は「ViTPose の 2D 関節列 + SAM 3D Body の画像トークン」から
+SOMA の姿勢を回帰するので、2D 関節が崩れれば 3D も崩れる。ゴルフのトップで
+両手が胴体に飛んだのはここ（issue 016 の A/B：f109 右手首 スコア 0.28→0.81、
+位置が胴体から実際の両手へ）。既定で実行時にその1行だけをコンテナ内で
+書き換える（`--no-vitpose-rgb` で上流のまま）。イメージ定義は変えない
+（SAM 3D Body 側とレイヤを共有しているため。backend/README.md）。
+
+直して再推論した結果（ゴルフ 172フレーム、issue 016 の実験結果）：トップ付近の
+両手首の距離は 33→22cm（GVHMR 16cm）、スイング区間の距離の SD は 7.1→4.5cm
+（GVHMR 4.6cm）まで戻った。**フィニッシュ（体の後ろに腕が隠れる区間）は
+直らない**（72〜75cm、GVHMR 10〜15cm）。そこは 2D 検出のスコアが 0.5 を切る
+遮蔽の問題で、色順とは別。足の滑り（65cm）と左右の足の高さ差（最大 16cm）も
+変わらない。
+
 ## 手順の出どころ
 
 GEM-X の Dockerfile をそのまま移した（INSTALL.md は Python 3.12 と書いているが、
@@ -151,6 +173,22 @@ def _probe_fps(path: str) -> float | None:
         return None
 
 
+def _patch_vitpose_color() -> None:
+    """ViTPose への入力の色反転を、コンテナ内のソースで1行だけ外す。
+
+    置換が 1箇所でなければ止める。上流が直したか変えたかのどちらかで、
+    黙って古い前提のまま走らせてはいけない。
+    """
+    src = Path(GEMX) / "gem/utils/vitpose_extractor.py"
+    text = src.read_text()
+    old = "crop = crop[..., ::-1].astype(np.float32) / 255.0  # BGR→RGB"
+    new = "crop = crop.astype(np.float32) / 255.0  # read_video_np は RGB。反転しない（patched）"
+    if text.count(old) != 1:
+        raise RuntimeError(f"vitpose_extractor.py の色反転行が {text.count(old)} 箇所。上流が変わった")
+    src.write_text(text.replace(old, new))
+    print("[vitpose] 色反転を外しました（RGB のまま入力）")
+
+
 def _link_assets() -> None:
     """Volume に置いた重みを、GEM-X が探す位置へ繋ぐ。"""
     import os
@@ -166,11 +204,12 @@ def _link_assets() -> None:
 @app.function(image=image, gpu="L4", volumes={ASSETS: vol}, timeout=3600)
 def reconstruct(video_bytes: bytes, name: str,
                 start: float | None = None, end: float | None = None,
-                static_cam: bool = True) -> dict:
+                static_cam: bool = True, vitpose_rgb: bool = True) -> dict:
     """動画1本を GEM-X で復元し、関節・姿勢・レンダ動画を返す。
 
     static_cam: True で `-s`（静止カメラ前提、VO を切る）。GVHMR と条件を
     揃えて比べたいときは True。カメラが動く素材では False も試す価値がある。
+    vitpose_rgb: ViTPose に色を正しく（RGB のまま）渡す。冒頭の説明を参照。
     """
     import numpy as np
     import torch
@@ -178,12 +217,17 @@ def reconstruct(video_bytes: bytes, name: str,
     os_chdir = __import__("os").chdir
     os_chdir(GEMX)
     _link_assets()
+    if vitpose_rgb:
+        _patch_vitpose_color()
 
     Path("inputs").mkdir(exist_ok=True)
     import hashlib
     # Distinguish video contents and selected interval, not just a basename.
     source_hash = hashlib.sha256(video_bytes).hexdigest()
-    cache_key = hashlib.sha256(f"{source_hash}:{start}:{end}:{GEMX_COMMIT}:v2".encode()).hexdigest()[:16]
+    key_src = f"{source_hash}:{start}:{end}:{GEMX_COMMIT}:v2"
+    if vitpose_rgb:
+        key_src += ":vitpose_rgb"      # 既存のキャッシュと混ざらないように
+    cache_key = hashlib.sha256(key_src.encode()).hexdigest()[:16]
     stem = f"{Path(name).stem}_{cache_key}"
     src = f"inputs/{stem}.mp4"
     Path(src).write_bytes(video_bytes)
@@ -249,17 +293,28 @@ def reconstruct(video_bytes: bytes, name: str,
     for mp4 in sorted(glob.glob(f"{out_root}/{stem}/*.mp4")):
         renders[Path(mp4).name] = Path(mp4).read_bytes()
 
-    return {"joints": joints, "poses": poses, "renders": renders,
+    # GEM-X 本体に入った 2D 関節（ViTPose, SOMA 77点, x,y,score）も返す。
+    # 3D が崩れたとき、入力の 2D がすでに崩れていたかをローカルで確かめられる。
+    kp2d = None
+    for pt in glob.glob(f"{out_root}/{stem}/**/*vitpose*.pt", recursive=True):
+        v = torch.load(pt, map_location="cpu")
+        v = v[0] if isinstance(v, tuple) else v
+        kp2d = np.asarray(v)
+        print(f"[kp2d] {pt} {kp2d.shape}")
+        break
+
+    return {"joints": joints, "poses": poses, "renders": renders, "kp2d": kp2d,
             "video_fps": video_fps,
             "provenance": {"video_sha256": source_hash, "gemx_commit": GEMX_COMMIT,
                            "decoder": "official_soma_adapter", "units": "m",
-                           "static_camera": static_cam, "start": start, "end": end}}
+                           "static_camera": static_cam, "start": start, "end": end,
+                           "vitpose_input": "rgb" if vitpose_rgb else "bgr_as_shipped"}}
 
 
 @app.local_entrypoint()
 def main(video: str, out: str = "output_gemx",
          start: float | None = None, end: float | None = None,
-         moving_cam: bool = False):
+         moving_cam: bool = False, vitpose_rgb: bool = True):
     """ローカルの動画を Modal で復元し、結果をローカルへ保存する。
 
     保存されるもの:
@@ -267,6 +322,8 @@ def main(video: str, out: str = "output_gemx",
       gx_joints_soma.npy  SOMA 77関節の世界座標（手・顔を使いたくなったとき用）
       gx_joints_incam.npy SMPL24順のカメラ空間（issue #8 の切り分け用）
       gx_pose.npz         SOMA の姿勢パラメータ（アバターへのリターゲット用）
+      gx_kp2d.npy         GEM-X に入った ViTPose の 2D 関節 (F,77,3) x,y,score
+      provenance.json     動画のハッシュ・固定コミット・ViTPose の色順など
     """
     import sys
 
@@ -280,7 +337,7 @@ def main(video: str, out: str = "output_gemx",
     print(f"送信: {video_path} ({len(data) / 1e6:.1f} MB) → Modal GPU で復元中…")
 
     r = reconstruct.remote(data, video_path.name, start, end,
-                           not moving_cam)
+                           not moving_cam, vitpose_rgb)
 
     d = Path(out)
     d.mkdir(parents=True, exist_ok=True)
@@ -298,7 +355,10 @@ def main(video: str, out: str = "output_gemx",
                                    for k, v in params.items()})
     import json
     (d / "provenance.json").write_text(json.dumps(r["provenance"], indent=2) + "\n")
-    saved.append("gx_pose.npz")
+    saved += ["gx_pose.npz", "provenance.json"]
+    if r.get("kp2d") is not None:
+        np.save(d / "gx_kp2d.npy", np.asarray(r["kp2d"]))
+        saved.append("gx_kp2d.npy")
 
     for fname, blob in r["renders"].items():
         (d / fname).write_bytes(blob)

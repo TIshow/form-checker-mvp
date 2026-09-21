@@ -3,6 +3,11 @@
 This reduces reprojection error; it cannot establish monocular depth accuracy.
 Uses no reference 3D model or commercial-incompatible teacher. Optional SciPy is
 loaded only on invocation. Inputs/outputs are in camera coordinates, meters.
+
+This experiment was REJECTED on the golf clip after visual review. Preserving
+bone lengths and improving 2D agreement did not preserve plausible 3D pose.
+The returned `accepted` flag concerns the optimizer objective only, never
+product adoption or validated pose accuracy. See docs/issues/016.
 """
 from __future__ import annotations
 

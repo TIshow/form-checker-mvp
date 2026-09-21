@@ -183,6 +183,11 @@ python tools/make_clip.py --name golf --domain golf_swing \
 python tools/make_clip.py --name golf_gemx --domain golf_swing \
     --joints output_golf_gemx/gx_joints.npy --fps 30 --video videos/golf/golf_form1.mp4 \
     --render "GEM-X メッシュ=output_golf_gemx/temp_golf_1_incam.mp4" --render "世界座標=output_golf_gemx/temp_golf_2_global.mp4"
+# ViTPose の色順を直した再推論（issue 016）。2D 検出のオーバーレイも並べる
+python tools/make_clip.py --name golf_gemx_rgb --domain golf_swing \
+    --joints output_golf_gemx_rgb/gx_joints.npy --fps 30 --video videos/golf/golf_form1.mp4 \
+    --render "GEM-X メッシュ（RGB修正）=output_golf_gemx_rgb/temp_golf_e2970f6a42dd77a1_baked_1_incam.mp4" \
+    --render "2D検出（RGB修正）=output_golf_gemx_rgb/0_kp2d77_overlay.mp4"
 # スマホ撮影はカメラが 10〜15° 傾く。録画の最初に直立する1秒があれば
 # --level-from 0:1 で水平を取れる（無いと前傾角がそのぶんずれる）
 ```

@@ -6,7 +6,7 @@
 |---|---|---|---|
 | `reconstruct_sam3d.py` | **SAM 3D Body + MHR** | SAM License（商用可）+ Apache-2.0 | **出荷用。** 人に見せる結果はこれで作る |
 | `reconstruct.py` | GVHMR | **非商用** | **基準。** 検証・突き合わせにだけ使う。外に出さない |
-| `reconstruct_gemx.py` | GEM-X | Apache-2.0 + NVIDIA Open Model | 評価記録。前傾角は正しいが**両手が離れる**（ゴルフで両手首 25±21cm。issue 011 §7d）。足も滑る。SAM 3D Body のイメージと重みの供給元なので消せない |
+| `reconstruct_gemx.py` | GEM-X | Apache-2.0 + NVIDIA Open Model | 評価記録。前傾角は正しい。上流デモが ViTPose に色を逆に渡すバグを既定で直す（`--vitpose-rgb`、issue 016）。直すとスイング区間の両手首は GVHMR 並み（SD 4.5cm）だが、**フィニッシュで腕が隠れると崩れ、足も滑る**。SAM 3D Body のイメージと重みの供給元なので消せない |
 | `reconstruct_tram.py` | TRAM | MIT（SMPL 依存） | 評価記録 |
 
 ## 役割分担（2026-09-20）

@@ -86,3 +86,59 @@ def main(video: str, prediction: str = "temp_golf_hpe_results.pt",
     for name, blob in results.items():
         (dest/name).write_bytes(blob)
         print(dest/name)
+
+
+@app.function(image=image, gpu="L4", volumes={ASSETS: vol}, timeout=600)
+def compare_color(video_bytes: bytes, evidence_bytes: bytes) -> bytes:
+    """A/B only the ViTPose color boundary, reusing identical saved boxes.
+
+    Pinned read_video_np returns RGB, while pinned ViTPose get_batch reverses
+    channels assuming BGR. Keep the legacy evidence and this experiment separate.
+    """
+    import hashlib
+    import io
+    import os
+    import sys
+    import numpy as np
+    import torch
+    from backend.reconstruct_gemx import _link_assets
+
+    os.chdir(GEMX)
+    sys.path.insert(0, GEMX)
+    _link_assets()
+    from gem.utils.video_io_utils import read_video_np
+    from gem.utils.vitpose_extractor import VitPoseExtractor
+    from gem.utils.geo_transform import get_bbx_xys_from_xyxy
+    from core.convert import to_smpl24
+
+    evidence = np.load(io.BytesIO(evidence_bytes), allow_pickle=False)
+    digest = hashlib.sha256(video_bytes).hexdigest()
+    if digest != str(evidence["video_sha256"]):
+        raise ValueError("Video does not match the saved evidence")
+    Path("/tmp/golf_color_ab.mp4").write_bytes(video_bytes)
+    rgb = read_video_np("/tmp/golf_color_ab.mp4")
+    boxes = torch.as_tensor(evidence["boxes_xyxy"], dtype=torch.float32)
+    if len(rgb) != len(boxes):
+        raise ValueError("Video and box frame counts differ")
+    bbx = get_bbx_xys_from_xyxy(boxes, base_enlarge=1.2).float()
+    extractor = VitPoseExtractor(device="cuda:0", pose_type="soma")
+    # The extractor reverses BGR to RGB internally. Only that boundary changes.
+    kp = extractor.extract(np.ascontiguousarray(rgb[..., ::-1]), bbx).cpu().numpy()
+    buf = io.BytesIO()
+    np.savez_compressed(buf, keypoints_2d_77=kp, keypoints_2d=to_smpl24(kp),
+                        video_sha256=np.array(digest), gemx_commit=np.array(GEMX_COMMIT),
+                        change=np.array("BGR input to pinned ViTPose; normalized model input RGB"),
+                        production_validated=np.array(False))
+    return buf.getvalue()
+
+
+@app.local_entrypoint()
+def color_ab(video: str, evidence: str = "output_golf_accuracy/evidence.npz",
+             out: str = "output_golf_color_ab"):
+    dest = Path(out) / "evidence_color.npz"
+    if dest.exists():
+        raise ValueError(f"Refusing to overwrite {dest}")
+    data = compare_color.remote(Path(video).read_bytes(), Path(evidence).read_bytes())
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    print(dest)
