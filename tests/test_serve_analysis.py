@@ -681,3 +681,23 @@ def test_golf_takeaway_survives_pause_at_top():
     top = 110
     assert speed[top] < 0.1 * speed.max()          # 前提: トップは「遅い」
     assert GolfSwing._takeaway(speed, top) == 80
+
+
+def test_display_anchor_cannot_deform_any_bone():
+    """表示用の足留め（並進のみ）は骨盤相対の姿勢を一切変えない。"""
+    from core.anchor import anchor_feet
+    J, _ = synth_serve(fps=30)
+    rng = np.random.default_rng(4)
+    J = J + rng.normal(0, .015, J.shape)
+    anchored, _ = anchor_feet(J)
+    np.testing.assert_allclose(anchored - anchored[:, 0:1], J - J[:, 0:1], atol=1e-12)
+
+
+def test_display_anchor_cannot_change_measurements():
+    """足留めの有無で計測値と計測用関節列は変わらない（表示だけの処理）。"""
+    import json
+    J, _ = synth_serve(fps=30)
+    a = analysis.analyze_json(J, 30, "golf_swing", anchor=False)
+    b = analysis.analyze_json(J, 30, "golf_swing", anchor=True)
+    assert json.dumps(a["metrics"], sort_keys=True) == json.dumps(b["metrics"], sort_keys=True)
+    assert a["measurement_joints"] == b["measurement_joints"]

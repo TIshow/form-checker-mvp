@@ -180,19 +180,10 @@ python tools/make_clip.py --name golf --domain golf_swing \
     --video videos/golf/golf_form1.mp4 --label "ゴルフスイング解析"
 # → http://127.0.0.1:8123/clip.html?clip=golf
 # 手法が描いたレンダ動画（メッシュ重ね合わせ等）を同期表示するには --render
-python tools/make_clip.py --name golf_gemx --domain golf_swing \
+# GEM-X を素のまま（上流に手を入れない。表示の足留めもしない。issue 018）
+python tools/make_clip.py --name golf_gemx --domain golf_swing --no-anchor \
     --joints output_golf_gemx/gx_joints.npy --fps 30 --video videos/golf/golf_form1.mp4 \
-    --render "GEM-X メッシュ=output_golf_gemx/temp_golf_1_incam.mp4" --render "世界座標=output_golf_gemx/temp_golf_2_global.mp4"
-# ViTPose の色順を直した再推論（issue 016）。2D 検出のオーバーレイも並べる
-python tools/make_clip.py --name golf_gemx_rgb --domain golf_swing \
-    --joints output_golf_gemx_rgb/gx_joints.npy --fps 30 --video videos/golf/golf_form1.mp4 \
-    --render "GEM-X メッシュ（RGB修正）=output_golf_gemx_rgb/temp_golf_e2970f6a42dd77a1_baked_1_incam.mp4" \
-    --render "2D検出（RGB修正）=output_golf_gemx_rgb/0_kp2d77_overlay.mp4"
-# 推論方法の比較（issue 017）。D = DDIM + GEM-X の接地後処理、A = regression のみ
-python tools/make_clip.py --name golf_gemx_ddim --domain golf_swing \
-    --joints output_golf_gemx_exp/D_ddim_pp_s0/gx_joints.npy --fps 30 --video videos/golf/golf_form1.mp4 \
-    --render "GEM-X メッシュ（DDIM 50 + 接地後処理）=output_golf_gemx_exp/D_ddim_pp_s0/incam.mp4" \
-    --render "GEM-X メッシュ（regression・後処理なし）=output_golf_gemx_exp/A_reg_nopp/incam.mp4"
+    --render "GEM-X メッシュ=output_golf_gemx/golf_form1_91d9803d02e9de9f_baked_1_incam.mp4" --render "2D検出=output_golf_gemx/0_kp2d77_overlay.mp4"
 # スマホ撮影はカメラが 10〜15° 傾く。録画の最初に直立する1秒があれば
 # --level-from 0:1 で水平を取れる（無いと前傾角がそのぶんずれる）
 ```

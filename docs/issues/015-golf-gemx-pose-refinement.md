@@ -151,3 +151,7 @@ global_scale として分離」は公式の解釈と同じだった。`core/gemx
 - [公式SOMAラッパー](https://github.com/NVlabs/GEM-X/blob/main/gem/utils/soma_utils/soma_layer.py)
 - [2D姿勢抽出](https://github.com/NVlabs/GEM-X/blob/main/gem/utils/vitpose_extractor.py)
 - [ローカルで指定しているコミット](https://github.com/NVlabs/GEM-X/commit/3299255)
+
+## リセット（2026-09-21）
+
+この doc が扱ったコードと出力は [018](018-golf-gemx-from-scratch.md) で外した。記録として残す。
