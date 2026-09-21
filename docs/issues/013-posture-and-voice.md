@@ -113,3 +113,7 @@ Status: 音声側を実装（2026-09-21）。反復測定の撮影が次
 
 シンガーズフォルマント 2.8〜3.4 kHz（NCVS の解説、Sundberg 1974 が原典）、
 SPR（Omori et al. 1996）。**本文未確認**なので閾値は置かず、良し悪しを判定しない。
+
+### 生成AIの改善点（issue 020）
+
+`web/data/opera*/coach.json`。根拠表は `domains/opera_posture_evidence.py`（抄録のみ・Tier C）。改善点はゼロで、観察と測れていないものを出す。

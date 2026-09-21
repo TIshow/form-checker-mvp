@@ -73,7 +73,9 @@ def copy_video(src: Path, dest: Path, max_width: int) -> None:
     cmd = [ff, "-y", "-loglevel", "error", "-i", str(src),
            "-vf", f"scale='min({max_width},iw)':-2",
            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-           "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", str(dest)]
+           "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+           # 音声は残す（オペラは音が本体。以前は -an で落としていて再生しても無音だった）
+           "-c:a", "aac", "-b:a", "128k", str(dest)]
     try:
         subprocess.run(cmd, check=True, capture_output=True)
     except Exception as e:

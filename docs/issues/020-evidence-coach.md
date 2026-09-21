@@ -47,3 +47,13 @@ Edwards et al. 2020（PMC9219256）は自動抽出のみで人手で通読して
 4. API で実行する（今回の golf_gvhmr の coach.json はセッション内で同じプロンプトを
    手動実行したもの。`generated_by` に明記）
 5. 結果（クラブヘッド速度・打球）を測って、改善点が結果に効いたかを追う（[010](010-outcome-measurement.md)）
+
+## オペラ（2026-09-21）
+
+`domains/opera_posture_evidence.py` を追加。姿勢と声の論文は有料誌が多く、**本文まで確認できた
+ものは無い**（Knight & Austin 2020、Longo et al. 2020 は Europe PMC の抄録のみ）。
+だから Tier B が無く、`clip=opera_gvhmr` / `clip=opera` の coach.json は**改善点ゼロ**、
+観察 7 件、測れていないもの 6 件。根拠が無いときに欠点を書かない、が守られている。
+
+音声の要約は `audio_` を前置した計測値として生成AIに渡す（`tools/coach.py`）。
+Tier を上げるには本文の入手（大学図書館・著者依頼）か、反復測定で自前の根拠を作るか。

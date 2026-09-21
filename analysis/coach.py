@@ -61,11 +61,13 @@ class CoachInput:
     metrics: dict
     evidence: list[dict]
     processing_note: str = ""
+    #: 計測値の追加のラベル（音声の要約など、ドメインの metric_labels に無いもの）
+    extra_labels: dict | None = None
 
 
-def _metric_lines(domain: str, metrics: dict) -> list[str]:
+def _metric_lines(domain: str, metrics: dict, extra_labels: dict | None = None) -> list[str]:
     d = get_domain(domain)
-    labels = getattr(d, "metric_labels", {})
+    labels = {**getattr(d, "metric_labels", {}), **(extra_labels or {})}
     lines = []
     for key, value in metrics.items():
         if key in ("domain", "phases", "kinetic_chain", "phases_note"):
@@ -105,7 +107,7 @@ def build_prompt(inp: CoachInput) -> str:
     return "\n".join([
         f"## 対象: {inp.clip_name}（ドメイン {inp.domain}）",
         "", "## 計測値（この映像から測ったもの。単位は指標名のとおり）",
-        *_metric_lines(inp.domain, inp.metrics),
+        *_metric_lines(inp.domain, inp.metrics, inp.extra_labels),
         "", "## 根拠表",
         *_evidence_lines(inp.evidence),
         "", "## 撮影・復元の条件", inp.processing_note or "（記載なし）",

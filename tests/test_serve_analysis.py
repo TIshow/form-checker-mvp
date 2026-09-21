@@ -771,3 +771,18 @@ def test_coach_run_with_fake_client_produces_saved_shape():
     assert out["improvements"][0]["evidence_id"] == "G-B1"
     assert out["not_measured"] == ["側屈"]
     assert out["generated_by"] == "fake" and out["clip"] == "synthetic"
+
+
+def test_opera_evidence_entries_are_well_formed():
+    from domains import base
+    from domains.opera_posture import OperaPosture
+    from domains.opera_posture_evidence import EVIDENCE
+    from core.audio import SUMMARY_LABELS
+    known = set(OperaPosture.metric_labels) | {f"audio_{k}" for k in SUMMARY_LABELS}
+    for e in EVIDENCE:
+        assert e["tier"] in (base.TIER_A, base.TIER_B, base.TIER_C)
+        assert e["verified"] in ("本文確認", "未確認")
+        for m in e["metrics"]:
+            assert m in known, f"{e['id']} が未知の指標 {m} を指している"
+        if e["tier"] == base.TIER_B:
+            assert e["verified"] == "本文確認"
