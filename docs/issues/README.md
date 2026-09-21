@@ -42,4 +42,4 @@ docは消さない。完了後の価値は手順ではなく「なぜそうし�
 | [015](015-golf-gemx-pose-refinement.md) | ゴルフのGEM-X精度：同一フレーム診断と改善実験 | — | Closed（不採用・018 でリセット） |
 | [016](016-golf-refinement-rejection.md) | 補正不採用：2D色順・奥行き・床表示の追加診断と修正順 | — | Closed（記録。018 でリセット） |
 | [017](017-gemx-temporal-accuracy-plan.md) | GEM-Xの時系列精度：DDIM経路の検証と比較計画 | — | Closed（記録。018 でリセット） |
-| [018](018-golf-gemx-from-scratch.md) | ゴルフ × GEM-X を 0 から積み上げる（上流に手を入れない） | — | Step 2 実施（不採用） |
+| [018](018-golf-gemx-from-scratch.md) | ゴルフ × GEM-X を 0 から積み上げる（上流に手を入れない） | — | Step 2 削除・Step 1 が土台 |

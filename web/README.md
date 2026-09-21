@@ -184,11 +184,6 @@ python tools/make_clip.py --name golf --domain golf_swing \
 python tools/make_clip.py --name golf_gemx --domain golf_swing --no-anchor \
     --joints output_golf_gemx/gx_joints.npy --fps 30 --video videos/golf/golf_form1.mp4 \
     --render "GEM-X メッシュ=output_golf_gemx/golf_form1_91d9803d02e9de9f_baked_1_incam.mp4" --render "2D検出=output_golf_gemx/0_kp2d77_overlay.mp4"
-# Step 2（issue 018）: 2D に合わせ込んだ結果を Step 1 と並べる
-python tools/make_clip.py --name golf_gemx_fit --domain golf_swing --no-anchor \
-    --joints output_golf_gemx_fit/gx_joints.npy --fps 30 --video videos/golf/golf_form1.mp4 \
-    --render "GEM-X メッシュ（Step 2: 2D に合わせ込み）=output_golf_gemx_fit/incam.mp4" \
-    --render "GEM-X メッシュ（Step 1: 素）=output_golf_gemx/golf_form1_91d9803d02e9de9f_baked_1_incam.mp4"
 # スマホ撮影はカメラが 10〜15° 傾く。録画の最初に直立する1秒があれば
 # --level-from 0:1 で水平を取れる（無いと前傾角がそのぶんずれる）
 ```
